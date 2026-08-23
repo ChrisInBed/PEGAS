@@ -1,4 +1,4 @@
-GLOBAL _PEGAS_VERSION_ IS "v1.3".
+GLOBAL _PEGAS_VERSION_ IS "v1.3.1".
 
 //	Check if all necessary variables have been defined, exit early otherwise.
 RUN pegas_precheck.
@@ -21,6 +21,9 @@ RUN pegas_addons.
 //	The following is absolutely necessary to run UPFG fast enough.
 SET CONFIG:IPU TO SETTINGS["kOS_IPU"].
 
+//	Ensure vehicle control is executed from the correct part
+CORE:PART:CONTROLFROM().
+
 //	Initialize global flags and constants
 GLOBAL upfgStage IS -1.				//	System initializes at passive guidance
 GLOBAL eventPointer IS -1.			//	Index of the last executed event (-1 means none yet)
@@ -41,9 +44,6 @@ scanAddons().
 
 //	PREFLIGHT ACTIVITIES
 checkControls().		//	Check the controls configuration
-//	Click "control from here" on a part that runs the system.
-//	Helpful when your payload is not perfectly rigidly attached, and you're not sure whether it controls the vessel or not.
-CORE:PART:CONTROLFROM().
 //	Update mission struct and set up UPFG target
 missionSetup().
 SET upfgTarget TO targetSetup().
@@ -143,6 +143,7 @@ UNTIL ABORT {
 }
 //	Final orbital insertion loop
 pushUIMessage( "Holding attitude for burn finalization!" ).
+LOCK STEERING TO "KILL".
 SET previousTime TO TIME:SECONDS.
 UNTIL ABORT {
 	LOCAL finalizeDT IS TIME:SECONDS - previousTime.
@@ -157,6 +158,8 @@ UNTIL ABORT {
 		BREAK.
 	}
 	refreshUI().
+	//	Execute hooks if needed
+	callHooks("terminal").
 	WAIT 0.
 }
 
