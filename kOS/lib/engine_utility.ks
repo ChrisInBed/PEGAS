@@ -1,0 +1,230 @@
+function get_engines_info {
+	parameter elist.
+	// calculate thrust and ISP and minimal throttle
+	local _thrustvec to v(0, 0, 0).
+	local _Isp to 0.0.
+	local _minthrustvec to v(0, 0, 0).
+	local _ullage to false.
+	local _number to 0.
+	local _spooluptime to 0.
+	local _facing to ship:facing.
+	local _ignitions to 9999999999.
+	for e in elist {
+		set _number to _number + 1.
+		set _thrustvec to _thrustvec + e:possiblethrust * e:facing:vector.
+		local _maxpossiblethrust to e:possiblethrust / max(1e-3, e:thrustlimit * 0.01 * (1 - e:minthrottle) + e:minthrottle).
+		set _minthrustvec to _minthrustvec + _maxpossiblethrust * e:facing:vector * e:minthrottle.
+		set _Isp to _Isp + (e:possiblethrust/max(1e-3, e:visp)).
+		if e:ullage { set _ullage to true. }
+		// RealFuel information: spool up time
+		if e:hasmodule("ModuleEnginesRF") {
+			local _rfmod to e:getmodule("ModuleEnginesRF").
+			if _rfmod:hasfield("effective spool-up time") {
+				set _spooluptime to max(_spooluptime, _rfmod:getfield("effective spool-up time")).
+			}
+			if _rfmod:hasfield("ignitions remaining") {
+				set _ignitions to min(_ignitions, _rfmod:getfield("ignitions remaining")).
+			}
+		}
+	}
+	local _thrust to _thrustvec:mag.
+	// get rotation from ship facing to thrust vector
+	local _topvector to vCrs(_thrustvec, _facing:starvector):normalized.
+	local _RotT to lookDirUp(_thrustvec, _topvector).
+	local TiS to _RotT:inverse * _facing.
+	if _thrust < 1e-4 return lexicon("number", _number, "TiS", TiS, "thrust", _thrust, "thrustVec", _thrustvec, "ISP", _Isp, "minthrottle", 1.0, "ullage", false, "spooluptime", 0.0, "ignitions", _ignitions).
+	local _minthrottle to _minthrustvec:mag / _thrust.
+	set _Isp to _thrust / _Isp.
+	return lexicon("number", _number, "TiS", TiS, "thrust", _thrust, "thrustVec", _thrustvec, "ISP", _Isp, "minthrottle", _minthrottle, "ullage", _ullage, "spooluptime", _spooluptime, "ignitions", _ignitions).
+}
+
+function need_ullage {
+	parameter elist.
+	for e in elist {
+		if e:ullage { return true. }
+	}
+	return false.
+}
+
+function engine_stability {
+	parameter elist.
+	local _stability to 1.
+	for e in elist {
+		set _stability to min(_stability, e:fuelstability).
+	}
+	return _stability.
+}
+
+function print_engines_info {
+	parameter elist.
+	local _summary to get_engines_info(elist).
+	for e in elist {
+		print e:tag + " " + e:title.
+	}
+	print "Thrust = " + _summary:thrust.
+	print "Isp = " + _summary:ISP.
+	print "Minthrottle = " + _summary:minthrottle.
+	print "Ullage = " + _summary:ullage.
+}
+
+function activate_engines {
+	parameter _engs.
+	parameter ullage_time to 0.
+	parameter no_ullage_check is false.
+	if (not no_ullage_check) and need_ullage(_engs) {
+		RCS ON.
+		local vecT to get_engines_info(_engs):thrustVec.
+		activate_RCS_ullage(_engs, 1.0).
+		wait ullage_time.
+		wait until engine_stability(_engs) > 0.999.
+	}
+	lock throttle to 1.
+	for e in _engs {
+		e:activate().
+	}
+	deactivate_RCS_ullage().
+}
+
+function deactivate_engines {
+	parameter _engs.
+	for e in _engs {
+		e:shutdown().
+	}
+}
+
+function search_engine {
+	// return the engine list that contains the target name tag
+	parameter P_ENGINE_TAG.
+	local elist to list().
+	list engines in elist.
+	local matched_engines to list().
+	for e in elist {
+		if e:tag:contains(P_ENGINE_TAG) { matched_engines:add(e). }
+	}
+	return matched_engines.
+}
+
+function get_active_engines {
+	local elist to list().
+	list engines in elist.
+	local matched_engines to list().
+	for e in elist {
+		if (e:ignition and (not e:flameout)) {
+			matched_engines:add(e).
+		}
+	}
+	return matched_engines.
+}
+
+function get_burn_time {
+	parameter P_MASS0.
+	parameter P_THRUST.
+	parameter P_ISP.
+	parameter P_DV.
+	if P_ISP < 1 or P_THRUST < 0.0001 { return -1. }
+	local _isp to P_ISP * constant:g0.
+	local mt to P_MASS0 * (constant:e ^ (-P_DV / _isp)).
+	local bt to (P_MASS0 - mt) / (P_THRUST / _isp).
+	return bt.
+}
+
+function engine_stage_check {
+	if not stage:ready { return false. }
+	local elist to list().
+	list engines in elist.
+	if elist:length = 0 { return false. }
+	for e in elist {
+		if e:stage = stage:number { set hasCurStageEngine to true. }
+		if e:flameout { return true. }
+	}
+	if not (defined hasCurStageEngine) { return true. }
+	else { unset hasCurStageEngine. }
+	return false.
+}
+
+function engine_work_time {
+	parameter P_ENGINE.
+	local _worktime to 9999999999.
+	for resource in P_ENGINE:consumedresources:values {
+		set _worktime to min(_worktime, resource:amount / (resource:maxfuelflow+1e-8)).
+	}
+	return _worktime.
+}
+
+function get_curthrust {
+	local elist to get_active_engines().
+	local thrustvec to v(0, 0, 0).
+	for e in elist {
+		set thrustvec to thrustvec + e:thrust * e:facing:vector.
+	}
+	return thrustvec:mag.
+}
+
+function initialize_throttle_control {
+	parameter f0.
+	parameter thro_min.
+	parameter thrust_target.
+	return lexicon(
+		"maxthrust", f0,
+		"minthrottle", thro_min,
+		"throttle", 0,
+		"thrust", 0,
+		"thrust_target", thrust_target,
+		"allo_restart", true,
+		"throttle_shutdown", thro_min - 0.2,
+		"throttle_restart", thro_min + 0.2,
+		"pid", pidLoop(1, 0.01, 0)
+	).
+}
+
+function update_throttle_control {
+	parameter control_state.
+	local throttle_target to (control_state["thrust_target"]/control_state["maxthrust"]).
+	// debug info
+	print "throttle_target = " + round(throttle_target, 2) 
+		+ ", minthrottle = " + round(control_state["minthrottle"], 2)
+		+ ", restart = " + round(control_state["throttle_restart"], 2)
+		+ ", shutdown = " + round(control_state["throttle_shutdown"], 2) AT(0, 18).
+	if (control_state["allo_restart"]) {
+		local engine_shutdown to false.
+		if (throttle = 0) set engine_shutdown to (throttle_target <= control_state["throttle_restart"]).
+		else set engine_shutdown to (throttle_target < control_state["throttle_shutdown"]).
+		if (engine_shutdown) return 0.
+	}
+	set throttle_target to throttle_target
+		+ control_state["pid"]:update(time:seconds,
+		(control_state["thrust"]-control_state["thrust_target"])/control_state["maxthrust"]).
+	set throttle_target to max(0.01, simple_get_throttle(throttle_target, control_state["minthrottle"])).
+	set control_state["throttle"] to throttle_target.
+	return throttle_target.
+}
+
+function simple_get_throttle {
+	parameter real_thro.
+	parameter min_thro.
+	if (min_thro > 0.999) {return 1.}
+	return max(0, min(1, (real_thro - min_thro) / (1 - min_thro))).
+}
+
+function activate_RCS_ullage {
+	parameter elist.
+	parameter strength.  // ullage strength 0~1
+	RCS ON.
+	local TiS to get_engines_info(elist):TiS.
+	set ship:control:translation to TiS:inverse * V(0, 0, strength).
+}
+
+function deactivate_RCS_ullage {
+	set ship:control:translation to V(0,0,0).
+}
+
+function get_furtherst_height {
+	parameter _bounds to "".
+	parameter _direction to "".
+
+	if (_bounds = "") set _bounds to ship:bounds.
+	if (_direction = "") set _direction to -ship:facing:forevector.
+
+	local _corner to _bounds:FURTHESTCORNER(_direction).
+	return vDot(_corner, _direction).
+}

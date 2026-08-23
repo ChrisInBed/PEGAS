@@ -1,5 +1,5 @@
 //	Utility library.
-
+runOncePath("0:/lib/engine_utility.ks").
 //	INTERNAL FUNCTIONS
 
 //	Rodrigues vector rotation formula
@@ -15,6 +15,12 @@ FUNCTION rodrigues {
 	SET outVector TO outVector + axis*VDOT(axis, inVector)*(1-COS(angle)).
 
 	RETURN outVector.
+}
+
+FUNCTION engineFacingOffset {
+	local elist to get_active_engines().
+	local engInfo to get_engines_info(elist).
+	return engInfo["TiS"].
 }
 
 //	Returns a kOS direction for given aim vector and roll angle
@@ -999,7 +1005,7 @@ FUNCTION upfgSteeringControl {
 		}
 		ELSE IF upfgConverged {
 			//	Only now we're good to go
-			SET steeringVector TO aimAndRoll(vecYZ(upfgOutput[1]["vector"]), steeringRoll).
+			SET steeringVector TO aimAndRoll(vecYZ(upfgOutput[1]["vector"]), steeringRoll) * engineFacingOffset().
 			SET usc_lastGoodVector TO upfgOutput[1]["vector"].
 			SET upfgEngaged TO TRUE.
 		}
