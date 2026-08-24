@@ -29,10 +29,12 @@ respectively.
 
 The returned lexicon has `fullStage`, `throttleDownStage`, and
 `throttleUpStage`; `status`; `jettisonMass`; `throttleDownTime`; and
-`jettisonTime`. The jettison time is measured from liftoff and is the predicted
-instant at which booster mass reaches `massDry`. It does not include a
-mechanical separation delay. `throttleDownTime` always echoes the requested
-event time, including when `no_core_throttling` cancels that event.
+`jettisonTime`; and `coreSeperationTime`. The jettison time is measured from
+liftoff and is the predicted instant at which booster mass reaches `massDry`.
+`coreSeperationTime` is the predicted core dry-mass time after accounting for
+`glim2` and minimum throttle. Neither value includes a mechanical separation
+delay. `throttleDownTime` always echoes the requested event time, including
+when `no_core_throttling` cancels that event.
 
 The statuses are:
 
@@ -62,8 +64,8 @@ Generated stages are prepended to `vehicle` in flight order only when their
 predicted end time is strictly later than `controls["upfgActivation"]`. A stage
 ending exactly at activation is already complete and is omitted. The candidate
 end times are throttle-down for the full-thrust phase, booster burnout for the
-throttled booster/core phase, and the analytically predicted `glim2` burnout for
-the core-only phase. The upper stages already supplied by the user retain their
+throttled booster/core phase, and the returned `coreSeperationTime` for the
+core-only phase. The upper stages already supplied by the user retain their
 relative order.
 
 Throttle-down, booster-separation, and throttle-up events are inserted into the
@@ -229,6 +231,64 @@ At booster burnout, the remaining core mass is obtained from mass conservation:
 
 \[
 m_{C,j}=M_j-m_{B,d}.
+\]
+
+## Core-only g-limit and separation time
+
+After booster jettison the core is restored to full thrust. Let
+
+\[
+G_2=g_{\mathrm{lim},2}g_0,\qquad
+q_C=\frac{T_C}{I_Cg_0}.
+\]
+
+Without a g-limit, the remaining core burn duration would be
+
+\[
+\Delta t_{C,f}=\frac{m_{C,j}-m_{C,d}}{q_C}.
+\]
+
+Full thrust reaches `glim2` at mass and elapsed time
+
+\[
+M_{C,g}=\frac{T_C}{G_2},\qquad
+\Delta t_{C,g}=\max\left(0,\frac{m_{C,j}-M_{C,g}}{q_C}\right).
+\]
+
+If \(\Delta t_{C,g}\ge\Delta t_{C,f}\), the core never reaches the limit and
+the full-thrust duration is used. Otherwise the mass at g-limit activation is
+\(M_{C,0}=m_{C,j}-q_C\Delta t_{C,g}\). The minimum-throttle mass is
+
+\[
+M_{C,\min}=\frac{T_Cl_C}{G_2}.
+\]
+
+For a single engine group at constant g, mass falls exponentially with rate
+\(g_{\mathrm{lim},2}/I_C\). If \(m_{C,d}\ge M_{C,\min}\), the limit can be
+maintained through separation and
+
+\[
+\Delta t_C=\Delta t_{C,g}
++\frac{I_C}{g_{\mathrm{lim},2}}
+\ln\left(\frac{M_{C,0}}{m_{C,d}}\right).
+\]
+
+If dry mass is below \(M_{C,\min}\), constant-g flight ends at the throttle
+floor. The remaining burn uses constant minimum thrust:
+
+\[
+\Delta t_C=\Delta t_{C,g}
++\frac{I_C}{g_{\mathrm{lim},2}}
+\ln\left(\frac{M_{C,0}}{M_{C,\min}}\right)
++\frac{M_{C,\min}-m_{C,d}}{q_Cl_C}.
+\]
+
+If the core starts at or below \(M_{C,\min}\), `glim2` cannot be maintained
+even at throttle-up and the entire remaining burn is predicted at minimum
+throttle. Finally,
+
+\[
+\texttt{coreSeperationTime}=t_j+\Delta t_C.
 \]
 
 ## Mapping to PEGAS stages

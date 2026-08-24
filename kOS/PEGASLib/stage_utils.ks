@@ -45,7 +45,7 @@ FUNCTION make_throttle_stage_config {
 	LOCAL throttledStageMinThrottle IS
 		throttledStageMinThrust / throttledStageMaxThrust.
 
-	LOCAL status IS "ok".
+	LOCAL gstatus IS "ok".
 	LOCAL jettisonTime IS 0.
 	LOCAL coreMassAtJettison IS 0.
 	LOCAL fullStageEndTime IS throttleDownTime.
@@ -53,7 +53,7 @@ FUNCTION make_throttle_stage_config {
 
 	IF unthrottledBoosterBurnoutTime <= throttleDownTime {
 		// There is no core-throttled booster phase to describe.
-		SET status TO "no_core_throttling".
+		SET gstatus TO "no_core_throttling".
 		PRINT "[stage-utils] Booster burnout precedes core throttle-down.".
 		SET jettisonTime TO unthrottledBoosterBurnoutTime.
 		SET fullStageEndTime TO jettisonTime.
@@ -123,7 +123,7 @@ FUNCTION make_throttle_stage_config {
 			LOCAL shiftedMass IS totalMassAtConstantG + beta / alpha.
 			// Booster mass derivative is -p*M-r in constant-g flight.
 			LOCAL p IS boosterFlowSlope * gLimitAcceleration / thrustSlope.
-			LOCAL r IS
+			LOCAL _r IS
 				boosterFlowFloor - boosterFlowSlope * thrustFloor / thrustSlope.
 
 			// The ideal requested main throttle reaches zero at this mass.
@@ -139,7 +139,7 @@ FUNCTION make_throttle_stage_config {
 				SET boosterMassAtThrottleFloor TO boosterMassAtConstantG
 					- p / alpha * shiftedMass
 					* (1 - CONSTANT:E ^ (-alpha * timeToThrottleFloor))
-					+ (p * beta / alpha - r) * timeToThrottleFloor.
+					+ (p * beta / alpha - _r) * timeToThrottleFloor.
 			}
 			PRINT "[stage-utils] Ideal throttle floor: T+"
 				+ ROUND(gLimitStartTime + timeToThrottleFloor, 3)
@@ -148,7 +148,7 @@ FUNCTION make_throttle_stage_config {
 
 			IF boosterMassAtThrottleFloor > boosterDryMass {
 				// Constant g cannot be held. Continue at ideal main throttle u=0.
-				SET status TO "overload1".
+				SET gstatus TO "overload1".
 				PRINT "[stage-utils] glim1 overload; simulating at u=0.".
 				LOCAL minimumThrottleBurnTime IS
 					(boosterMassAtThrottleFloor - boosterDryMass)
@@ -171,7 +171,7 @@ FUNCTION make_throttle_stage_config {
 					LOCAL totalMassAtRoot IS shiftedMass * expTerm - beta / alpha.
 					LOCAL boosterMassAtRoot IS boosterMassAtConstantG
 						- p / alpha * shiftedMass * (1 - expTerm)
-						+ (p * beta / alpha - r) * rootTime.
+						+ (p * beta / alpha - _r) * rootTime.
 					LOCAL massError IS boosterMassAtRoot - boosterDryMass.
 					PRINT "[stage-utils] Newton " + (iteration + 1)
 						+ ": dt=" + ROUND(rootTime, 6)
@@ -187,7 +187,7 @@ FUNCTION make_throttle_stage_config {
 						SET upperTime TO rootTime.
 					}
 
-					LOCAL massDerivative IS -p * totalMassAtRoot - r.
+					LOCAL massDerivative IS -p * totalMassAtRoot - _r.
 					LOCAL nextTime IS rootTime - massError / massDerivative.
 					IF nextTime <= lowerTime OR nextTime >= upperTime {
 						SET nextTime TO (lowerTime + upperTime) / 2.
@@ -222,7 +222,7 @@ FUNCTION make_throttle_stage_config {
 		)
 	).
 
-	IF status <> "no_core_throttling" {
+	IF gstatus <> "no_core_throttling" {
 		SET throttleDownStageConfig TO LEXICON(
 			"name", "throttle down",
 			"massTotal", fullStageConfig["massDry"],
@@ -254,18 +254,68 @@ FUNCTION make_throttle_stage_config {
 			"ignition", FALSE
 		)
 	).
-	PRINT "[stage-utils] Result: " + status
+
+	// Predict core burnout/separation after booster jettison. First check
+	// whether full thrust reaches glim2 before dry mass, then check whether the
+	// limit remains achievable above the physical minimum throttle.
+	LOCAL coreFullBurnTime IS
+		(coreMassAtJettison - coreDryMass) / coreFullFlow.
+	LOCAL coreGLimitAcceleration IS glim2 * CONSTANT:g0.
+	LOCAL coreGLimitMass IS coreThrust / coreGLimitAcceleration.
+	LOCAL coreGLimitStart IS
+		MAX(0, (coreMassAtJettison - coreGLimitMass) / coreFullFlow).
+	LOCAL coreBurnDuration IS coreFullBurnTime.
+
+	IF coreGLimitStart >= coreFullBurnTime {
+		PRINT "[stage-utils] Core does not reach glim2 before separation.".
+	} ELSE {
+		LOCAL coreMassAtGLimit IS
+			coreMassAtJettison - coreFullFlow * coreGLimitStart.
+		LOCAL coreThrottleFloorMass IS
+			coreThrust * coreMinThrottle / coreGLimitAcceleration.
+		PRINT "[stage-utils] Core reaches glim2 at T+"
+			+ ROUND(jettisonTime + coreGLimitStart, 3) + " s".
+
+		IF coreMassAtGLimit <= coreThrottleFloorMass {
+			// Even minimum throttle is already above glim2 at throttle-up.
+			SET coreBurnDuration TO
+				(coreMassAtJettison - coreDryMass)
+				/ (coreFullFlow * coreMinThrottle).
+			PRINT "[stage-utils] Core cannot maintain glim2 at throttle-up;"
+				+ " simulating the full burn at minimum throttle.".
+		} ELSE IF coreDryMass >= coreThrottleFloorMass {
+			// The core reaches dry mass before the throttle floor.
+			SET coreBurnDuration TO coreGLimitStart
+				+ coreIsp / glim2
+				* LN(coreMassAtGLimit / coreDryMass).
+			PRINT "[stage-utils] Core maintains glim2 through separation.".
+		} ELSE {
+			// Constant g ends at minimum throttle; finish at constant min thrust.
+			LOCAL timeToCoreThrottleFloor IS coreIsp / glim2
+				* LN(coreMassAtGLimit / coreThrottleFloorMass).
+			LOCAL coreMinimumThrottleBurnTime IS
+				(coreThrottleFloorMass - coreDryMass)
+				/ (coreFullFlow * coreMinThrottle).
+			SET coreBurnDuration TO coreGLimitStart
+				+ timeToCoreThrottleFloor + coreMinimumThrottleBurnTime.
+			PRINT "[stage-utils] Core reaches minimum throttle before separation;"
+				+ " simulating the remaining burn at minimum thrust.".
+		}
+	}
+	LOCAL coreSeperationTime IS jettisonTime + coreBurnDuration.
+	PRINT "[stage-utils] Result: " + gstatus
 		+ ", booster jettison T+" + ROUND(jettisonTime, 3)
-		+ " s, core mass " + ROUND(coreMassAtJettison, 3) + " kg".
+		+ " s, core separation T+" + ROUND(coreSeperationTime, 3) + " s".
 
 	RETURN LEXICON(
 		"fullStage", fullStageConfig,
 		"throttleDownStage", throttleDownStageConfig,
 		"throttleUpStage", throttleUpStageConfig,
-		"status", status,
+		"status", gstatus,
 		"jettisonMass", boosterDryMass,
 		"throttleDownTime", throttleDownTime,
-		"jettisonTime", jettisonTime
+		"jettisonTime", jettisonTime,
+		"coreSeperationTime", coreSeperationTime
 	).
 }
 
@@ -308,56 +358,15 @@ FUNCTION configure_booster_core_stages {
 	LOCAL stageConfig IS
 		make_throttle_stage_config(boosterInfo, coreInfo, eventInfo).
 	LOCAL upfgActivation IS controlInfo["upfgActivation"].
-	LOCAL status IS stageConfig["status"].
+	LOCAL gstatus IS stageConfig["status"].
 	LOCAL jettisonTime IS stageConfig["jettisonTime"].
 	LOCAL fullStageEndTime IS stageConfig["throttleDownTime"].
-	IF status = "no_core_throttling" {
+	IF gstatus = "no_core_throttling" {
 		SET fullStageEndTime TO jettisonTime.
 	}
 
-	// Predict the end of the core-only phase so even an unusually late UPFG
-	// activation can exclude it. This is the single-engine analogue of the
-	// constant-g calculation above and assumes immediate core throttle-up.
 	LOCAL coreStage IS stageConfig["throttleUpStage"].
-	LOCAL coreStageWetMass IS coreStage["massTotal"].
-	LOCAL coreStageDryMass IS coreStage["massDry"].
-	LOCAL coreThrust IS coreInfo["thrust"].
-	LOCAL coreIsp IS coreInfo["isp"].
-	LOCAL coreMinThrottle IS coreInfo["throttleMinLevel"].
-	LOCAL coreFullFlow IS coreThrust / (coreIsp * CONSTANT:g0).
-	LOCAL coreFullBurnTime IS
-		(coreStageWetMass - coreStageDryMass) / coreFullFlow.
-	LOCAL glim2 IS eventInfo["glim2"].
-	LOCAL coreGLimitAcceleration IS glim2 * CONSTANT:g0.
-	LOCAL coreGLimitMass IS coreThrust / coreGLimitAcceleration.
-	LOCAL coreGLimitStart IS
-		MAX(0, (coreStageWetMass - coreGLimitMass) / coreFullFlow).
-	LOCAL coreBurnDuration IS coreFullBurnTime.
-
-	IF coreGLimitStart < coreFullBurnTime {
-		LOCAL coreMassAtGLimit IS
-			coreStageWetMass - coreFullFlow * coreGLimitStart.
-		LOCAL coreThrottleFloorMass IS
-			coreThrust * coreMinThrottle / coreGLimitAcceleration.
-		IF coreMassAtGLimit <= coreThrottleFloorMass {
-			SET coreBurnDuration TO
-				(coreStageWetMass - coreStageDryMass)
-				/ (coreFullFlow * coreMinThrottle).
-		} ELSE IF coreStageDryMass >= coreThrottleFloorMass {
-			SET coreBurnDuration TO coreGLimitStart
-				+ coreIsp / glim2
-				* LN(coreMassAtGLimit / coreStageDryMass).
-		} ELSE {
-			LOCAL timeToCoreThrottleFloor IS coreIsp / glim2
-				* LN(coreMassAtGLimit / coreThrottleFloorMass).
-			LOCAL coreMinimumThrottleBurnTime IS
-				(coreThrottleFloorMass - coreStageDryMass)
-				/ (coreFullFlow * coreMinThrottle).
-			SET coreBurnDuration TO coreGLimitStart
-				+ timeToCoreThrottleFloor + coreMinimumThrottleBurnTime.
-		}
-	}
-	LOCAL coreStageEndTime IS jettisonTime + coreBurnDuration.
+	LOCAL coreStageEndTime IS stageConfig["coreSeperationTime"].
 
 	PRINT "[stage-utils] UPFG activation: T+"
 		+ ROUND(upfgActivation, 3) + " s".
@@ -370,7 +379,7 @@ FUNCTION configure_booster_core_stages {
 		PRINT "[stage-utils] Skipped full-thrust stage; already complete.".
 	}
 
-	IF status <> "no_core_throttling" {
+	IF gstatus <> "no_core_throttling" {
 		IF jettisonTime > upfgActivation {
 			targetVehicle:INSERT(prependIndex, stageConfig["throttleDownStage"]).
 			SET prependIndex TO prependIndex + 1.
@@ -397,7 +406,7 @@ FUNCTION configure_booster_core_stages {
 		SET coreThrottleUpDelay TO eventInfo["coreThrottleUpDelay"].
 	}
 
-	IF status <> "no_core_throttling" {
+	IF gstatus <> "no_core_throttling" {
 		_stage_utils_insert_timed_event(targetSequence, LEXICON(
 			"time", stageConfig["throttleDownTime"],
 			"type", "delegate",
@@ -411,7 +420,7 @@ FUNCTION configure_booster_core_stages {
 		"massLost", stageConfig["jettisonMass"],
 		"message", "booster separation"
 	)).
-	IF status <> "no_core_throttling" {
+	IF gstatus <> "no_core_throttling" {
 		_stage_utils_insert_timed_event(targetSequence, LEXICON(
 			"time", jettisonTime + coreThrottleUpDelay,
 			"type", "delegate",

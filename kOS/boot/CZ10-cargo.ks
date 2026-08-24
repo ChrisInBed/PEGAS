@@ -4,6 +4,8 @@ PRINT "Loading boot file: CZ-10...".
 RUNPATH("0:/PEGASLib/stage_utils.ks").
 
 // Parameter Settings
+set config:IPU to 2000.
+SET STEERINGMANAGER:ROLLTS TO 10.
 LOCAL fairingMass to 202 * 2.
 LOCAL towerMass to 0.
 LOCAL BoosterInfo to lexicon(
@@ -80,8 +82,6 @@ GLOBAL mission IS LEXICON(
 	"periapsis", 200,
 	"payload", 18146  // Change to your payload mass in kg
 ).
-set config:IPU to 2000.
-SET STEERINGMANAGER:ROLLTS TO 10.
 // End Parameter Settings
 
 GLOBAL CoreThrottleTarget to 100 * (EventInfo:throttleDownLevel - CoreInfo:throttleMinLevel) / (1 - CoreInfo:throttleMinLevel).
