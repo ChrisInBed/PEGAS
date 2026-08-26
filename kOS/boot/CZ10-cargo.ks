@@ -93,7 +93,8 @@ LOCAL _initialStateConfig IS configure_booster_core_stages(
 	EventInfo,
 	vehicle,
 	sequence,
-	controls
+	controls,
+	mission
 ).
 
 PRINT "Loaded boot file: CZ-10!".

@@ -14,11 +14,17 @@ core mass at separation are correct.
 
 | Field | Units | Meaning |
 | --- | --- | --- |
-| `massWet` | kg | Initial mass of the engine group and everything assigned to it |
-| `massDry` | kg | Mass remaining when that engine group runs out of propellant |
+| `massWet` | kg | Initial configured mass of the engine group and everything assigned to it, excluding the PEGAS payload |
+| `massDry` | kg | Configured mass remaining when that engine group runs out of propellant, excluding the PEGAS payload |
 | `thrust` | N | Maximum vacuum thrust |
 | `isp` | s | Vacuum specific impulse |
 | `throttleMinLevel` | 0-1 | Physical engine throttle at KSP main throttle zero |
+
+`make_throttle_stage_config` takes `payloadMass` as its fourth argument. The
+payload must not already be included in `coreInfo["massWet"]` or
+`coreInfo["massDry"]`. The helper adds it to both core masses for its internal
+flight prediction, so payload changes the g-load and throttle history without
+changing the available core propellant. Pass zero when no payload is defined.
 
 `eventInfo` contains `throttleDownTime` in seconds, `throttleDownLevel` as the
 core's physical throttle after throttling down, and the acceleration limits
@@ -35,6 +41,11 @@ liftoff and is the predicted instant at which booster mass reaches `massDry`.
 `glim2` and minimum throttle. Neither value includes a mechanical separation
 delay. `throttleDownTime` always echoes the requested event time, including
 when `no_core_throttling` cancels that event.
+
+Every `massTotal` and `massDry` in the three returned PEGAS stage lexicons
+excludes payload mass. PEGAS's normal vehicle setup adds `mission["payload"]`
+to each guided stage afterwards. Payload therefore participates exactly once
+in both the helper's physical prediction and PEGAS's runtime vehicle model.
 
 The statuses are:
 
@@ -56,9 +67,11 @@ and booster mass error, so computation remains visibly active on slow CPUs.
 
 `configure_booster_core_stages` is the integration entry point used by launch
 configuration files. It accepts booster, core, and event settings followed by
-the user-defined `vehicle`, `sequence`, and `controls` structures. It calls
-`make_throttle_stage_config`, mutates the two supplied lists, and returns the
-calculated stage-config lexicon.
+the user-defined `vehicle`, `sequence`, `controls`, and `mission` structures.
+It passes `mission["payload"]` to `make_throttle_stage_config`, mutates the two
+supplied lists, and returns the calculated stage-config lexicon. Launch files
+using this helper must define the payload key; set it to zero for a flight with
+no payload.
 
 Generated stages are prepended to `vehicle` in flight order only when their
 predicted end time is strictly later than `controls["upfgActivation"]`. A stage
@@ -88,7 +101,17 @@ where \(I_B,I_C\) are specific impulses. Their full-thrust mass flows are
 q_B=\frac{T_B}{v_B},\qquad q_C=\frac{T_C}{v_C}.
 \]
 
-Before core throttle-down, the masses are linear functions of time:
+Let \(P\) be `payloadMass`. In all equations below, the core wet and dry masses
+are the physical prediction masses
+
+\[
+m_{C,w}=m_{C,w,\mathrm{input}}+P,\qquad
+m_{C,d}=m_{C,d,\mathrm{input}}+P.
+\]
+
+Thus payload is part of \(m_C\) and total vehicle mass \(M\), but not of the
+booster mass. Before core throttle-down, the masses are linear functions of
+time:
 
 \[
 m_B(t)=m_{B,w}-q_Bt,\qquad
@@ -305,7 +328,7 @@ KSP main throttle agree with the combined affine thrust model. The stage also
 declares `gLim = glim1`. The post-jettison core stage declares its full thrust,
 `minThrottle = l_C`, and `gLim = glim2`.
 
-For an ordinary profile, mass continuity is enforced by
+For an ordinary profile, physical-model mass continuity is enforced by
 
 \[
 M_{\text{full,dry}}=M_{\text{down,total}},
@@ -315,6 +338,33 @@ M_{\text{full,dry}}=M_{\text{down,total}},
 M_{\text{down,dry}}=m_{B,d}+m_{C,j},\qquad
 M_{\text{up,total}}=m_{C,j}.
 \]
+
+Let a hat denote a mass written into a returned PEGAS stage lexicon. Payload is
+removed from every returned mass field:
+
+\[
+\widehat M_{\text{full,total}}=M_{\text{full,total}}-P,\qquad
+\widehat M_{\text{full,dry}}=M_{\text{full,dry}}-P,
+\]
+
+\[
+\widehat M_{\text{down,total}}=M_{\text{down,total}}-P,\qquad
+\widehat M_{\text{down,dry}}=M_{\text{down,dry}}-P,
+\]
+
+\[
+\widehat M_{\text{up,total}}=M_{\text{up,total}}-P,\qquad
+\widehat M_{\text{up,dry}}=m_{C,d}-P.
+\]
+
+Consequently the payload-free stage definitions still satisfy
+
+\[
+\widehat M_{\text{full,dry}}=\widehat M_{\text{down,total}},\qquad
+\widehat M_{\text{down,dry}}-m_{B,d}=\widehat M_{\text{up,total}}.
+\]
+
+PEGAS later restores \(P\) to every one of these wet and dry masses.
 
 All three logical stages use `jettison = FALSE` and `ignition = FALSE`; the
 physical separation and core throttle-limit changes remain scheduled events in

@@ -52,7 +52,7 @@
    - `isp`：该组发动机的等效比冲，单位s。
    - `throttleMinLevel`：该组发动机的物理最低节流，范围0到1。如果一组内有多种发动机，使用“所有发动机最低推力之和 / 所有发动机最大推力之和”。
 
-   `BoosterInfo`只包含**所有捆绑助推器的合计值**，不包含芯级。`CoreInfo`表示助推段开始时由芯级承载的整个剩余箭体：`massWet`应包含湿芯级、上面级、整流罩和载荷，`massDry`则包含干芯级以及仍被承载的上面级、整流罩和载荷。两者之差是可由芯级发动机消耗的推进剂质量。
+   `BoosterInfo`只包含**所有捆绑助推器的合计值**，不包含芯级。`CoreInfo`表示助推段开始时由芯级承载的整个剩余箭体，但不包含`mission["payload"]`：`massWet`应包含湿芯级、上面级和整流罩，`massDry`则包含干芯级以及仍被承载的上面级和整流罩。两者之差是可由芯级发动机消耗的推进剂质量。载荷质量只在`mission["payload"]`中填写；没有载荷时填写0。
 4. 填写`EventInfo`：
 
    - `throttleDownTime`：从起飞开始计时的芯级节流时刻，单位s。
@@ -80,11 +80,12 @@
        EventInfo,
        vehicle,
        sequence,
-       controls
+       controls,
+       mission
    ).
    ```
 
-   此函数会直接更新`vehicle`和`sequence`，并返回计算结果。返回lexicon包含`fullStage`、`throttleDownStage`、`throttleUpStage`、`status`、`jettisonMass`、`throttleDownTime`、`jettisonTime`和`coreSeperationTime`。其中`jettisonMass`是助推器总干质量，`jettisonTime`是从起飞到助推推进剂耗尽的预测时间，不包含机械分离延迟，`coreSeperationTime`是预测的芯级推进剂耗尽时间。注意`coreSeperationTime`保留了现有接口中的拼写。`status`可能是`ok`、`no_core_throttling`或`overload1`；`overload1`表示第一恒过载阶段已经把KSP主节流降到精确的0，助推仍未燃尽。
+   此函数会把`mission["payload"]`传给计算函数，直接更新`vehicle`和`sequence`，并返回计算结果。三个返回分级的`massTotal`和`massDry`仍然不包含载荷；PEGAS随后会按原有机制把载荷加到每个受制导分级中，因此不要在`CoreInfo`中重复加入载荷。返回lexicon还包含`status`、`jettisonMass`、`throttleDownTime`、`jettisonTime`和`coreSeperationTime`。其中`jettisonMass`是助推器总干质量，`jettisonTime`是从起飞到助推推进剂耗尽的预测时间，不包含机械分离延迟，`coreSeperationTime`是预测的芯级推进剂耗尽时间。注意`coreSeperationTime`保留了现有接口中的拼写。`status`可能是`ok`、`no_core_throttling`或`overload1`；`overload1`表示第一恒过载阶段已经把KSP主节流降到精确的0，助推仍未燃尽。
 8. 计算期间终端会输出带有`[stage-utils]`前缀的进度，包括各飞行阶段、过载限制判断、助推燃尽求根迭代、芯级分离计算、分级筛选和事件插入。kOS计算较慢时，可以用这些日志确认程序仍在运行。
 9. 在VAB中设定火箭载具的kOS processor启动文件为刚创建的发射配置文件。如果找不到配置文件，请退出并重新进入VAB，这会刷新启动文件列表。
 

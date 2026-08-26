@@ -9,6 +9,7 @@ FUNCTION make_throttle_stage_config {
 	PARAMETER boosterInfo.
 	PARAMETER coreInfo.
 	PARAMETER eventInfo.
+	PARAMETER payloadMass.
 
 	LOCAL boosterWetMass IS boosterInfo["massWet"].
 	LOCAL boosterDryMass IS boosterInfo["massDry"].
@@ -16,8 +17,8 @@ FUNCTION make_throttle_stage_config {
 	LOCAL boosterIsp IS boosterInfo["isp"].
 	LOCAL boosterMinThrottle IS boosterInfo["throttleMinLevel"].
 
-	LOCAL coreWetMass IS coreInfo["massWet"].
-	LOCAL coreDryMass IS coreInfo["massDry"].
+	LOCAL coreWetMass IS coreInfo["massWet"] + payloadMass.
+	LOCAL coreDryMass IS coreInfo["massDry"] + payloadMass.
 	LOCAL coreThrust IS coreInfo["thrust"].
 	LOCAL coreIsp IS coreInfo["isp"].
 	LOCAL coreMinThrottle IS coreInfo["throttleMinLevel"].
@@ -210,8 +211,8 @@ FUNCTION make_throttle_stage_config {
 		coreWetMass - coreFullFlow * fullStageEndTime.
 	LOCAL fullStageConfig IS LEXICON(
 		"name", "full thrust",
-		"massTotal", boosterWetMass + coreWetMass,
-		"massDry", boosterMassAtFullStageEnd + coreMassAtFullStageEnd,
+		"massTotal", boosterWetMass + coreWetMass - payloadMass,
+		"massDry", boosterMassAtFullStageEnd + coreMassAtFullStageEnd - payloadMass,
 		"engines", LIST(
 			LEXICON("isp", boosterIsp, "thrust", boosterThrust),
 			LEXICON("isp", coreIsp, "thrust", coreThrust)
@@ -226,7 +227,7 @@ FUNCTION make_throttle_stage_config {
 		SET throttleDownStageConfig TO LEXICON(
 			"name", "throttle down",
 			"massTotal", fullStageConfig["massDry"],
-			"massDry", boosterDryMass + coreMassAtJettison,
+			"massDry", boosterDryMass + coreMassAtJettison - payloadMass,
 			"gLim", glim1,
 			"minThrottle", throttledStageMinThrottle,
 			"engines", LIST(
@@ -242,8 +243,8 @@ FUNCTION make_throttle_stage_config {
 
 	LOCAL throttleUpStageConfig IS LEXICON(
 		"name", "throttle up",
-		"massTotal", coreMassAtJettison,
-		"massDry", coreDryMass,
+		"massTotal", coreMassAtJettison - payloadMass,
+		"massDry", coreDryMass - payloadMass,
 		"gLim", glim2,
 		"minThrottle", coreMinThrottle,
 		"engines", LIST(
@@ -354,9 +355,10 @@ FUNCTION configure_booster_core_stages {
 	PARAMETER targetVehicle.
 	PARAMETER targetSequence.
 	PARAMETER controlInfo.
+	PARAMETER missionInfo.
 
 	LOCAL stageConfig IS
-		make_throttle_stage_config(boosterInfo, coreInfo, eventInfo).
+		make_throttle_stage_config(boosterInfo, coreInfo, eventInfo, missionInfo["payload"]).
 	LOCAL upfgActivation IS controlInfo["upfgActivation"].
 	LOCAL gstatus IS stageConfig["status"].
 	LOCAL jettisonTime IS stageConfig["jettisonTime"].
