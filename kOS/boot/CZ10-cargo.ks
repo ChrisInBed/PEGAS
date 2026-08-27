@@ -84,7 +84,6 @@ GLOBAL mission IS LEXICON(
 ).
 // End Parameter Settings
 
-GLOBAL CoreThrottleTarget to 100 * (EventInfo:throttleDownLevel - CoreInfo:throttleMinLevel) / (1 - CoreInfo:throttleMinLevel).
 SET usc_convergeFlags TO LIST().
 
 LOCAL _initialStateConfig IS configure_booster_core_stages(

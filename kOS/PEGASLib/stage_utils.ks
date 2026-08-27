@@ -27,6 +27,9 @@ FUNCTION make_throttle_stage_config {
 	LOCAL throttleDownLevel IS eventInfo["throttleDownLevel"].
 	LOCAL glim1 IS eventInfo["glim1"].
 	LOCAL glim2 IS eventInfo["glim2"].
+	DECLARE GLOBAL CoreThrottleTarget IS
+		100 * (throttleDownLevel - coreMinThrottle) / (1 - coreMinThrottle).
+	DECLARE GLOBAL triggerEventId IS -1.
 
 	LOCAL boosterExhaustVelocity IS boosterIsp * CONSTANT:g0.
 	LOCAL coreExhaustVelocity IS coreIsp * CONSTANT:g0.
@@ -433,12 +436,13 @@ FUNCTION configure_booster_core_stages {
 			"message", "Core stage throttle down"
 		)).
 	}
-	_stage_utils_insert_timed_event(targetSequence, LEXICON(
+	LOCAL boosterJettisonEvent IS LEXICON(
 		"time", jettisonTime + boosterSeparationDelay,
 		"type", "jettison",
 		"massLost", stageConfig["jettisonMass"],
 		"message", "booster separation"
-	)).
+	).
+	_stage_utils_insert_timed_event(targetSequence, boosterJettisonEvent).
 	IF gstatus <> "no_core_throttling" {
 		_stage_utils_insert_timed_event(targetSequence, LEXICON(
 			"time", jettisonTime + coreThrottleUpDelay,
@@ -447,6 +451,7 @@ FUNCTION configure_booster_core_stages {
 			"message", "Core stage throttle up"
 		)).
 	}
+	SET triggerEventId TO targetSequence:FIND(boosterJettisonEvent).
 
 	RETURN stageConfig.
 }
