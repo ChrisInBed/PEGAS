@@ -176,6 +176,7 @@ FUNCTION refreshUI {
 	LOCAL vehicleStatus IS "".
 	LOCAL upfgStatus IS "".
 	LOCAL stageTgo IS 0.
+	LOCAL stageTgoKnown IS TRUE.
 	LOCAL totalTgo IS 0.
 	LOCAL totalVgo IS 0.
 	//	Exception: the following is not a vehicle param but orbital info. We still check it
@@ -190,7 +191,11 @@ FUNCTION refreshUI {
 		SET vehicleStatus TO "nominal".
 		SET upfgStatus TO "inactive".
 		// Time until activation of UPFG
-		SET stageTgo TO liftoffTime:SECONDS + controls["upfgActivation"] - currentTime:SECONDS.
+		IF controls:HASKEY("upfgActivationMass") {
+			SET stageTgoKnown TO FALSE.
+		} ELSE {
+			SET stageTgo TO liftoffTime:SECONDS + controls["upfgActivation"] - currentTime:SECONDS.
+		}
 		SET currentVelocity TO SHIP:VELOCITY:SURFACE:MAG.
 	} ELSE {
 		SET isActive TO TRUE.
@@ -242,7 +247,11 @@ FUNCTION refreshUI {
 	textPrint(upfgStatus, vehicleInfoOffset + 3, 15, 41).
 	IF isFlying {
 		//	Don't print time until next event while we're still on the ground
-		numberPrint(stageTgo, vehicleInfoOffset + 4, 17, 21, 0).
+		IF stageTgoKnown {
+			numberPrint(stageTgo, vehicleInfoOffset + 4, 17, 21, 0).
+		} ELSE {
+			textPrint("N/A", vehicleInfoOffset + 4, 17, 21, "R").
+		}
 	}
 	IF NOT isActive {
 		textPrint("N/A", vehicleInfoOffset + 4, 33, 37, "R").
@@ -397,21 +406,23 @@ FUNCTION buildFlightPlan {
 
 	//	Depending on guidance mode, insert a placeholder either for UPFG activation, or for final MECO.
 	IF isPassiveGuidance {
-		SET i TO 0.
-		LOCAL offset TO -1.
-		FOR this IN printableEvents {
-			IF controls["upfgActivation"] < this["time"] {
-				SET offset TO 0.
-				BREAK.
+		IF controls:HASKEY("upfgActivation") {
+			SET i TO 0.
+			LOCAL offset TO -1.
+			FOR this IN printableEvents {
+				IF controls["upfgActivation"] < this["time"] {
+					SET offset TO 0.
+					BREAK.
+				}
+				SET i TO i + 1.
 			}
-			SET i TO i + 1.
+			printableEvents:INSERT(i, LEXICON(
+				"id", printableEvents[i + offset]["id"] + 1,
+				"time", controls["upfgActivation"],
+				"tstr", "" + ROUND(ABS(controls["upfgActivation"]), 1),
+				"type", "_activeon"	//	Instead of message directly, so we always get the same string from makeMessage
+			)).
 		}
-		printableEvents:INSERT(i, LEXICON(
-			"id", printableEvents[i + offset]["id"] + 1,
-			"time", controls["upfgActivation"],
-			"tstr", "" + ROUND(ABS(controls["upfgActivation"]), 1),
-			"type", "_activeon"	//	Instead of message directly, so we always get the same string from makeMessage
-		)).
 	} ELSE {
 		printableEvents:ADD(LEXICON(
 			"id", 1000,		//	Irrelevant, it just needs to be impossibly high

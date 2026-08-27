@@ -73,13 +73,11 @@ supplied lists, and returns the calculated stage-config lexicon. Launch files
 using this helper must define the payload key; set it to zero for a flight with
 no payload.
 
-Generated stages are prepended to `vehicle` in flight order only when their
-predicted end time is strictly later than `controls["upfgActivation"]`. A stage
-ending exactly at activation is already complete and is omitted. The candidate
-end times are throttle-down for the full-thrust phase, booster burnout for the
-throttled booster/core phase, and the returned `coreSeperationTime` for the
-core-only phase. The upper stages already supplied by the user retain their
-relative order.
+Generated stages are prepended to `vehicle` in flight order only when they are
+still active at `controls["upfgActivation"]`, or above the configured
+`controls["upfgActivationMass"]`. A stage ending exactly at activation is
+already complete and is omitted. The upper stages already supplied by the user
+retain their relative order.
 
 Throttle-down, booster-separation, and throttle-up events are inserted into the
 user's existing `sequence`. The input sequence must already be ordered by

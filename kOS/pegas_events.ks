@@ -62,8 +62,8 @@ FUNCTION spawnCountdownEvents {
 FUNCTION spawnStagingEvents {
 	//	For each active stage we have to schedule the preStage event and the staging event - except the FIRST ONE which is already
 	//	preStaged by now and we just need to stage it (which will possibly be a no-op if it's a sustainer). We'll iterate over the
-	//	vehicle, computing (cumulatively) burnout times for each stage and spawning events. We know exactly when everything starts:
-	//	`controls["upfgActivation"]`.
+	//	vehicle, computing nominal burnout times for pre-staging and flight-plan display. Physical transitions after the first one
+	//	are handled by stagingWatchdog.
 	//	Expects global variables:
 	//	"controls" as lexicon
 	//	"vehicle" as list
@@ -77,6 +77,7 @@ FUNCTION spawnStagingEvents {
 	LOCAL stagingEvent IS LEXICON(
 		"time", stageActivationTime,
 		"type", "_upfgstage",
+		"stage", 0,
 		"isHidden", vehicleIterator:VALUE["isVirtualStage"] OR vehicleIterator:VALUE["isSustainer"],
 		"fpMessage", "STAGE: " + vehicleIterator:VALUE["name"]
 	).
@@ -92,6 +93,7 @@ FUNCTION spawnStagingEvents {
 	//	Compute activation time for the next stage - this is equal to the burnout time for the current stage, which begins its burn
 	//	with some delay after the activation, and burns for maxT seconds.
 	SET stageActivationTime TO stageActivationTime + getStageDelays(vehicleIterator:VALUE) + vehicleIterator:VALUE["maxT"].
+	LOCAL stageID IS 1.
 	//	Loop over remaining stages
 	UNTIL NOT vehicleIterator:NEXT {
 		//	Construct & insert pre-stage event
@@ -100,6 +102,7 @@ FUNCTION spawnStagingEvents {
 		LOCAL stagingEvent IS LEXICON(
 			"time", stageActivationTime - stagingTransitionTime,
 			"type", "_prestage",
+			"stage", stageID,
 			"isHidden", TRUE
 		).
 		insertEvent(stagingEvent).
@@ -107,6 +110,7 @@ FUNCTION spawnStagingEvents {
 		LOCAL stagingEvent IS LEXICON(
 			"time", stageActivationTime,
 			"type", "_upfgstage",
+			"stage", stageID,
 			"isHidden", vehicleIterator:VALUE["isVirtualStage"],
 			"fpMessage", "STAGE: " + vehicleIterator:VALUE["name"]
 		).
@@ -118,7 +122,23 @@ FUNCTION spawnStagingEvents {
 		insertEvent(stagingEvent).
 		//	Compute activation time for the next stage (in the same way as before)
 		SET stageActivationTime TO stageActivationTime + getStageDelays(vehicleIterator:VALUE) + vehicleIterator:VALUE["maxT"].
+		SET stageID TO stageID + 1.
 	}
+}
+
+//	Advance to the next stage on measured burnout instead of predicted time
+FUNCTION stagingWatchdog {
+	//	The first UPFG stage is activated by time because the preceding atmospheric stage is not in vehicle.
+	IF NOT activeGuidanceMode OR (stagingInProgress AND NOT prestageHold) { RETURN. }
+
+	LOCAL currentStage IS CHOOSE upfgStage - 1 IF prestageHold ELSE upfgStage.
+	IF currentStage < 0 OR currentStage >= vehicle:LENGTH - 1 { RETURN. }
+
+	LOCAL nominalThrust IS getThrust(vehicle[currentStage]["engines"])[0].
+	IF SHIP:MASS*1000 > vehicle[currentStage]["massDry"] AND SHIP:THRUST*1000 >= 0.01*nominalThrust { RETURN. }
+
+	IF NOT prestageHold { internalEvent_preStage(). }
+	internalEvent_staging().
 }
 
 //	Executes a scheduled sequence/staging event.
@@ -138,6 +158,7 @@ FUNCTION eventHandler {
 	//	"throttleDisplay" as scalar
 	//	"upfgStage" as scalar
 	//	"eventPointer" as scalar
+	stagingWatchdog().
 	LOCAL nextEventPointer IS eventPointer + 1.
 	IF nextEventPointer >= sequence:LENGTH {
 		RETURN.	//	No more events in the sequence
@@ -176,10 +197,12 @@ FUNCTION eventHandler {
 		internalEvent_activeModeOn().
 	}
 	ELSE IF eType = "_prestage" {
-		internalEvent_preStage().
+		//	A watchdog-triggered transition can make this predicted event stale.
+		IF event["stage"] > upfgStage { internalEvent_preStage(). }
 	}
 	ELSE IF eType = "_upfgstage" {
-		internalEvent_staging().
+		//	Only initial activation is time-driven; later stages are handled by stagingWatchdog.
+		IF event["stage"] = 0 { internalEvent_staging(). }
 	}
 	ELSE {
 		pushUIMessage("Unknown event type (" + eType + ", message='" + event["message"] + "')!", 5, PRIORITY_HIGH).

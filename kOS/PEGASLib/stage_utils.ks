@@ -359,7 +359,7 @@ FUNCTION configure_booster_core_stages {
 
 	LOCAL stageConfig IS
 		make_throttle_stage_config(boosterInfo, coreInfo, eventInfo, missionInfo["payload"]).
-	LOCAL upfgActivation IS controlInfo["upfgActivation"].
+	LOCAL massActivation IS controlInfo:HASKEY("upfgActivationMass").
 	LOCAL gstatus IS stageConfig["status"].
 	LOCAL jettisonTime IS stageConfig["jettisonTime"].
 	LOCAL fullStageEndTime IS stageConfig["throttleDownTime"].
@@ -369,11 +369,28 @@ FUNCTION configure_booster_core_stages {
 
 	LOCAL coreStage IS stageConfig["throttleUpStage"].
 	LOCAL coreStageEndTime IS stageConfig["coreSeperationTime"].
+	LOCAL includeFullStage IS FALSE.
+	LOCAL includeThrottleStage IS FALSE.
+	LOCAL includeCoreStage IS FALSE.
 
-	PRINT "[stage-utils] UPFG activation: T+"
-		+ ROUND(upfgActivation, 3) + " s".
+	IF massActivation {
+		LOCAL activationMass IS controlInfo["upfgActivationMass"].
+		LOCAL payloadMass IS missionInfo["payload"].
+		SET includeFullStage TO stageConfig["fullStage"]["massDry"] + payloadMass < activationMass.
+		IF gstatus <> "no_core_throttling" {
+			SET includeThrottleStage TO stageConfig["throttleDownStage"]["massDry"] + payloadMass < activationMass.
+		}
+		SET includeCoreStage TO coreStage["massDry"] + payloadMass < activationMass.
+		PRINT "[stage-utils] UPFG activation mass: " + ROUND(activationMass, 3) + " kg".
+	} ELSE {
+		LOCAL upfgActivation IS controlInfo["upfgActivation"].
+		SET includeFullStage TO fullStageEndTime > upfgActivation.
+		SET includeThrottleStage TO jettisonTime > upfgActivation.
+		SET includeCoreStage TO coreStageEndTime > upfgActivation.
+		PRINT "[stage-utils] UPFG activation: T+" + ROUND(upfgActivation, 3) + " s".
+	}
 	LOCAL prependIndex IS 0.
-	IF fullStageEndTime > upfgActivation {
+	IF includeFullStage {
 		targetVehicle:INSERT(prependIndex, stageConfig["fullStage"]).
 		SET prependIndex TO prependIndex + 1.
 		PRINT "[stage-utils] Prepended full-thrust stage.".
@@ -382,7 +399,7 @@ FUNCTION configure_booster_core_stages {
 	}
 
 	IF gstatus <> "no_core_throttling" {
-		IF jettisonTime > upfgActivation {
+		IF includeThrottleStage {
 			targetVehicle:INSERT(prependIndex, stageConfig["throttleDownStage"]).
 			SET prependIndex TO prependIndex + 1.
 			PRINT "[stage-utils] Prepended throttled booster/core stage.".
@@ -391,7 +408,7 @@ FUNCTION configure_booster_core_stages {
 		}
 	}
 
-	IF coreStageEndTime > upfgActivation {
+	IF includeCoreStage {
 		targetVehicle:INSERT(prependIndex, coreStage).
 		PRINT "[stage-utils] Prepended core-only stage; predicted end T+"
 			+ ROUND(coreStageEndTime, 3) + " s".

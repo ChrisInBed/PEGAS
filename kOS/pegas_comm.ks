@@ -23,9 +23,10 @@ FUNCTION commsHandler {
 			LOCAL availableData IS LEXICON(
 				"liftoffTime", liftoffTime:SECONDS,
 				"launchAzimuth", mission["launchAzimuth"],
-				"upfgActivation", controls["upfgActivation"],
 				"upfgConverged", upfgConverged
 			).
+			IF controls:HASKEY("upfgActivation") { availableData:ADD("upfgActivation", controls["upfgActivation"]). }
+			IF controls:HASKEY("upfgActivationMass") { availableData:ADD("upfgActivationMass", controls["upfgActivationMass"]). }
 			//	Iterate through requested data and add to responseData
 			FOR d IN data {
 				//	Check whether the request has the right type and whether we understand it.
@@ -146,7 +147,13 @@ FUNCTION command_setUpfgTime {
 	IF params[0]:ISTYPE("Scalar") {
 		IF params[0] <= 0 { RETURN "ERROR (UPFG cannot be activated before liftoff)". }
 		IF params[0] < (TIME:SECONDS - liftoffTime:SECONDS) { SET params[0] TO TIME:SECONDS - liftoffTime:SECONDS. }
-		SET controls["upfgActivation"] TO params[0]. RETURN TRUE.
+		IF controls:HASKEY("upfgActivationMass") { controls:REMOVE("upfgActivationMass"). }
+		IF controls:HASKEY("upfgActivation") {
+			SET controls["upfgActivation"] TO params[0].
+		} ELSE {
+			controls:ADD("upfgActivation", params[0]).
+		}
+		RETURN TRUE.
 	} ELSE { RETURN "ERROR (Incorrect parameter type)". }
 }
 

@@ -84,9 +84,17 @@ UNTIL ABORT {
 	commsHandler().
 	//	Passive guidance
 	atmosphericSteeringControl(steeringRoll).
-	//	The passive guidance loop ends a few seconds before actual ignition of the first UPFG-controlled stage.
-	//	This is to give UPFG time to converge. Actual ignition occurs via stagingEvents.
-	IF TIME:SECONDS >= liftoffTime:SECONDS + controls["upfgActivation"] - SETTINGS["upfgConvergenceDelay"] {
+	//	Time-based activation preconverges in advance; mass-based activation initializes at the threshold.
+	LOCAL activateUPFG IS FALSE.
+	IF controls:HASKEY("upfgActivationMass") {
+		IF TIME:SECONDS >= liftoffTime:SECONDS AND SHIP:MASS*1000 <= controls["upfgActivationMass"] {
+			controls:ADD("upfgActivation", TIME:SECONDS - liftoffTime:SECONDS).
+			SET activateUPFG TO TRUE.
+		}
+	} ELSE IF TIME:SECONDS >= liftoffTime:SECONDS + controls["upfgActivation"] - SETTINGS["upfgConvergenceDelay"] {
+		SET activateUPFG TO TRUE.
+	}
+	IF activateUPFG {
 		pushUIMessage("Initiating UPFG!").
 		BREAK.
 	}

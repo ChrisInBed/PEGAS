@@ -5,6 +5,7 @@ FUNCTION upfg {
 	DECLARE PARAMETER target.
 	DECLARE PARAMETER state.
 	DECLARE PARAMETER previous.
+	DECLARE PARAMETER liveStage IS LEXICON().
 
 	LOCAL gamma IS target["angle"].
 	LOCAL iy IS target["normal"].
@@ -34,26 +35,28 @@ FUNCTION upfg {
 	LOCAL tb IS LIST().
   
 	FROM { LOCAL i IS 0. } UNTIL i>=n STEP { SET i TO i+1. } DO {
-		SM:ADD(vehicle[i]["mode"]).
-		aL:ADD(vehicle[i]["gLim"]*CONSTANT:g0).
-		LOCAL pack IS getThrust(vehicle[i]["engines"]).
+		LOCAL thisStage IS CHOOSE liveStage IF i = 0 AND liveStage:LENGTH > 0 ELSE vehicle[i].
+		SM:ADD(thisStage["mode"]).
+		aL:ADD(thisStage["gLim"]*CONSTANT:g0).
+		LOCAL pack IS getThrust(thisStage["engines"]).
 		fT:ADD(pack[0]).
 		md:ADD(pack[1]).
 		ve:ADD(pack[2]*CONSTANT:g0).
-		aT:ADD(fT[i] / vehicle[i]["massTotal"]).
+		aT:ADD(fT[i] / thisStage["massTotal"]).
 		tu:ADD(ve[i]/aT[i]).
-		tb:ADD(vehicle[i]["maxT"]).
+		tb:ADD(thisStage["maxT"]).
 	}
 
 	//	2
 	LOCAL dt IS t-tp.
 	LOCAL dvsensed IS v_-vprev.
 	LOCAL vgo IS vgo-dvsensed.
-	SET tb[0] TO tb[0] - previous["tb"].
+	IF liveStage:LENGTH = 0 { SET tb[0] TO tb[0] - previous["tb"]. }
 
 	//	3
 	IF SM[0]=1 {
-		SET aT[0] TO fT[0] / m.
+		LOCAL activeMass IS CHOOSE m IF liveStage:LENGTH > 0 ELSE vehicle[0]["massTotal"].
+		SET aT[0] TO fT[0] / activeMass.
 	} ELSE IF SM[0]=2 {
 		SET aT[0] TO aL[0].
 	}
@@ -69,7 +72,7 @@ FUNCTION upfg {
 		} ELSE Li:ADD( 0 ).
 		SET L TO L + Li[i].
 		IF L>vgo:MAG {
-			RETURN upfg(vehicle:SUBLIST(0,vehicle:LENGTH-1), target, state, previous).
+			RETURN upfg(vehicle:SUBLIST(0,vehicle:LENGTH-1), target, state, previous, liveStage).
 		}
 	}
 	Li:ADD(vgo:MAG - L).

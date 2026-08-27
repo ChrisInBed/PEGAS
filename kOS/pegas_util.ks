@@ -57,6 +57,21 @@ FUNCTION getThrust {
 	RETURN LIST(F, dm, isp).
 }
 
+//	Current thrust, mass flow and specific impulse of all available engines
+FUNCTION getCurrentThrust {
+	LOCAL F IS 0.
+	LOCAL dm IS 0.
+	LOCAL activeEngines IS getActiveEngines().
+	FOR engine IN activeEngines {
+		LOCAL engineThrust IS engine:AVAILABLETHRUST*1000.
+		SET F TO F + engineThrust.
+		SET dm TO dm + engineThrust/(engine:ISP*CONSTANT:g0).
+	}
+	LOCAL isp IS 0.
+	IF dm > 0 { SET isp TO F/(dm*CONSTANT:g0). }
+	RETURN LIST(F, dm, isp).
+}
+
 //	Robust calculation of constant acceleration burn time
 FUNCTION constAccBurnTime {
 	//	Takes minimum engine throttle into account:
@@ -393,9 +408,19 @@ FUNCTION checkControls {
 	LOCAL errorsFound IS FALSE.
 
 	//	Check if the mandatory keys are present
-	IF NOT (controls:HASKEY("launchTimeAdvance") AND controls:HASKEY("upfgActivation")) {
+	LOCAL hasActivationTime IS controls:HASKEY("upfgActivation").
+	LOCAL hasActivationMass IS controls:HASKEY("upfgActivationMass").
+	IF NOT controls:HASKEY("launchTimeAdvance") {
 		SET errorsFound TO TRUE.
 		PRINT "Mandatory control keys missing!".
+	}
+	IF hasActivationTime = hasActivationMass {
+		SET errorsFound TO TRUE.
+		PRINT "Define exactly one UPFG activation criterion!".
+	}
+	IF hasActivationMass AND controls["upfgActivationMass"] <= 0 {
+		SET errorsFound TO TRUE.
+		PRINT "UPFG activation mass must be positive!".
 	}
 
 	//	Check if passive guidance is configured correctly
@@ -622,7 +647,9 @@ FUNCTION init4upfg_constantAcceleration {
 	SET gLimStage["virtualStageType"] TO "virtual (const-acc)".
 	//	Insert it into the list
 	vehicle:INSERT(stageID + 1, gLimStage).
-	//	Adjust the burn time of the current stage
+	//	Adjust the current logical stage to end at the transition mass
+	SET vehicle[stageID]["massFuel"] TO burnedFuelMass.
+	SET vehicle[stageID]["massDry"] TO vehicle[stageID]["massTotal"] - burnedFuelMass.
 	SET vehicle[stageID]["maxT"] TO accLimTime.
 	//	And remember that it cannot shutdown before the virtual staging
 	SET vehicle[stageID]["shutdownRequired"] TO FALSE.
@@ -755,10 +782,12 @@ FUNCTION initializeVehicleForUPFG {
 	//	Otherwise it is a sustainer stage (Shuttle-like) and only its initial (and, hence, dry) mass is known. Actual mass
 	//	needs to be measured and burn time calculated.
 	IF NOT vehicle[0]["staging"]["ignition"] {
-		//	We need to know what the real mass of the vehicle will be when UPFG is activated. Since this function is called
-		//	a known amount of time prior to that (defined in SETTINGS["upfgConvergenceDelay"]), we can calculate that.
+		//	Mass activation initializes at engagement; time activation still needs the convergence-delay prediction.
 		LOCAL combinedEngines IS getThrust(vehicle[0]["engines"]).
-		SET vehicle[0]["massTotal"] TO SHIP:MASS*1000 - combinedEngines[1]*SETTINGS["upfgConvergenceDelay"].
+		SET vehicle[0]["massTotal"] TO SHIP:MASS*1000.
+		IF NOT controls:HASKEY("upfgActivationMass") {
+			SET vehicle[0]["massTotal"] TO vehicle[0]["massTotal"] - combinedEngines[1]*SETTINGS["upfgConvergenceDelay"].
+		}
 		SET vehicle[0]["massFuel"] TO vehicle[0]["massTotal"] - vehicle[0]["massDry"].
 		SET vehicle[0]["maxT"] TO vehicle[0]["massFuel"] / combinedEngines[1].
 		SET vehicle[0]["isSustainer"] TO TRUE.
@@ -955,7 +984,25 @@ FUNCTION upfgSteeringControl {
 		SET usc_currentVehicle TO vehicle:SUBLIST(upfgStage, vehicle:LENGTH).
 		SET usc_lastSeenStage TO upfgStage.
 	}
-	LOCAL upfgOutput IS upfg(usc_currentVehicle, upfgTarget, upfgState, upfgInternal).
+	LOCAL liveStage IS LEXICON().
+	IF NOT stagingInProgress {
+		LOCAL liveEngine IS getCurrentThrust().
+		IF liveEngine[0] > 0 {
+			SET liveStage TO usc_currentVehicle[0]:COPY().
+			SET liveEngine[0] TO liveEngine[0]*liveStage["throttle"].
+			SET liveEngine[1] TO liveEngine[1]*liveStage["throttle"].
+			SET liveStage["massTotal"] TO upfgState["mass"].
+			SET liveStage["massFuel"] TO upfgState["mass"] - liveStage["massDry"].
+			SET liveStage["engines"] TO LIST(LEXICON("isp", liveEngine[2], "flow", liveEngine[1])).
+			IF liveStage["mode"] = 2 AND liveEngine[0] < upfgState["mass"]*liveStage["gLim"]*CONSTANT:g0 {
+				SET liveStage["mode"] TO 1.
+			}
+			SET liveStage["maxT"] TO CHOOSE
+				liveStage["massFuel"] / liveEngine[1] IF liveStage["mode"] = 1
+				ELSE constAccBurnTime(liveStage).
+		}
+	}
+	LOCAL upfgOutput IS upfg(usc_currentVehicle, upfgTarget, upfgState, upfgInternal, liveStage).
 
 	//	Convergence check. The rule is that time-to-go as calculated between iterations
 	//	should not change significantly more than the time difference between those iterations.
