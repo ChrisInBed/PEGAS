@@ -60,9 +60,9 @@ FUNCTION spawnCountdownEvents {
 
 //	Create sequence entries for staging events
 FUNCTION spawnStagingEvents {
-	//	For each active stage we have to schedule the preStage event and the staging event - except the FIRST ONE which is already
-	//	preStaged by now and we just need to stage it (which will possibly be a no-op if it's a sustainer). We'll iterate over the
-	//	vehicle, computing nominal burnout times for pre-staging and flight-plan display. Physical transitions after the first one
+	//	For each active stage we schedule a staging event for flight-plan display - except the FIRST ONE which also remains the
+	//	time-based activation event (and may be a no-op if it's a sustainer). We'll iterate over the vehicle, computing nominal
+	//	burnout times for display. Physical transitions after the first one
 	//	are handled by stagingWatchdog.
 	//	Expects global variables:
 	//	"controls" as lexicon
@@ -96,16 +96,6 @@ FUNCTION spawnStagingEvents {
 	LOCAL stageID IS 1.
 	//	Loop over remaining stages
 	UNTIL NOT vehicleIterator:NEXT {
-		//	Construct & insert pre-stage event
-		LOCAL stagingTransitionTime IS SETTINGS["stagingKillRotTime"].
-		IF vehicleIterator:VALUE["isVirtualStage"] { SET stagingTransitionTime TO 2. }
-		LOCAL stagingEvent IS LEXICON(
-			"time", stageActivationTime - stagingTransitionTime,
-			"type", "_prestage",
-			"stage", stageID,
-			"isHidden", TRUE
-		).
-		insertEvent(stagingEvent).
 		//	Construct & insert staging event
 		LOCAL stagingEvent IS LEXICON(
 			"time", stageActivationTime,
@@ -126,13 +116,18 @@ FUNCTION spawnStagingEvents {
 	}
 }
 
-//	Advance to the next stage on measured burnout instead of predicted time
+//	Prepare and advance to the next stage from the live burnout estimate
 FUNCTION stagingWatchdog {
 	//	The first UPFG stage is activated by time because the preceding atmospheric stage is not in vehicle.
 	IF NOT activeGuidanceMode OR (stagingInProgress AND NOT prestageHold) { RETURN. }
 
 	LOCAL currentStage IS CHOOSE upfgStage - 1 IF prestageHold ELSE upfgStage.
 	IF currentStage < 0 OR currentStage >= vehicle:LENGTH - 1 { RETURN. }
+	IF NOT stagingInProgress {
+		LOCAL stagingTransitionTime IS SETTINGS["stagingKillRotTime"].
+		IF vehicle[currentStage + 1]["isVirtualStage"] { SET stagingTransitionTime TO 2. }
+		IF TIME:SECONDS >= thisStageTransitionTime - stagingTransitionTime { internalEvent_preStage(). }
+	}
 
 	LOCAL nominalThrust IS getThrust(vehicle[currentStage]["engines"])[0].
 	IF SHIP:MASS*1000 > vehicle[currentStage]["massDry"] AND SHIP:THRUST*1000 >= 0.01*nominalThrust { RETURN. }
@@ -197,7 +192,6 @@ FUNCTION eventHandler {
 		internalEvent_activeModeOn().
 	}
 	ELSE IF eType = "_prestage" {
-		//	A watchdog-triggered transition can make this predicted event stale.
 		IF event["stage"] > upfgStage { internalEvent_preStage(). }
 	}
 	ELSE IF eType = "_upfgstage" {

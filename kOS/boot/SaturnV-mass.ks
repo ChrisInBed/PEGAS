@@ -40,7 +40,7 @@ GLOBAL controls IS LEXICON(
 					"verticalAscentTime", 25,
 					"pitchOverAngle", 3,
 					// "upfgActivation", 163
-					"upfgActivationMass", 851000
+					"upfgActivationMass", 845000
 ).
 GLOBAL mission IS LEXICON(
 	"apoapsis", 200,

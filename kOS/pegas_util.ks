@@ -65,10 +65,10 @@ FUNCTION getCurrentThrust {
 	FOR engine IN activeEngines {
 		LOCAL engineThrust IS engine:AVAILABLETHRUST*1000.
 		SET F TO F + engineThrust.
-		SET dm TO dm + engineThrust/(engine:ISP*CONSTANT:g0).
+		SET dm TO dm + engineThrust/max(1, engine:VISP*CONSTANT:g0).
 	}
 	LOCAL isp IS 0.
-	IF dm > 0 { SET isp TO F/(dm*CONSTANT:g0). }
+	IF dm > 0 { SET isp TO F/max(1, dm*CONSTANT:g0). }
 	RETURN LIST(F, dm, isp).
 }
 
@@ -869,10 +869,11 @@ FUNCTION initializeVehicleForUPFG {
 //	Utility to keep track of actively guided stage burnouts for display purposes
 FUNCTION updateThisStageEndTime {
 	//	The staging event calls this when a stage is activated, to calculate when the stage - and all of its
-	//	subsequent virtual continuations - will run out of fuel. This is only used to update "thisStageEndTime"
-	//	used by refreshUI. The value might be off by 1-2 seconds because of the engine spool-up time (#wontfix).
+	//	subsequent virtual continuations - will run out of fuel.
 	//	Expects global variables:
 	//	"thisStageEndTime" as scalar
+	//	"thisStageTransitionTime" as scalar
+	//	"thisStageTailTime" as scalar
 	//	"upfgStage" as scalar
 	//	"vehicle" as list
 	LOCAL stageBurnTime IS 0.
@@ -889,6 +890,8 @@ FUNCTION updateThisStageEndTime {
 		SET i TO i + 1.
 	}
 	//	Since this stage has been activated just now, this is when it will burn out:
+	SET thisStageTailTime TO stageBurnTime - vehicle[upfgStage]["maxT"].
+	SET thisStageTransitionTime TO TIME:SECONDS + vehicle[upfgStage]["maxT"].
 	SET thisStageEndTime TO TIME:SECONDS + stageBurnTime.
 }
 
@@ -1000,6 +1003,8 @@ FUNCTION upfgSteeringControl {
 			SET liveStage["maxT"] TO CHOOSE
 				liveStage["massFuel"] / liveEngine[1] IF liveStage["mode"] = 1
 				ELSE constAccBurnTime(liveStage).
+			SET thisStageTransitionTime TO TIME:SECONDS + liveStage["maxT"].
+			SET thisStageEndTime TO thisStageTransitionTime + thisStageTailTime.
 		}
 	}
 	LOCAL upfgOutput IS upfg(usc_currentVehicle, upfgTarget, upfgState, upfgInternal, liveStage).
