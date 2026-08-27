@@ -13,9 +13,18 @@ declare global CoreThrottleUp to {
 	}
 }.
 
+declare global ShutEnginesDown to {
+	local myengs to list().
+	list engines in myengs.
+	for e in myengs {
+		if e:tag:contains("shutdown") { e:shutdown(). }
+	}
+}.
+
 declare global delegateTable to lexicon(
     "CoreThrottleDown", CoreThrottleDown,
-    "CoreThrottleUp", CoreThrottleUp
+    "CoreThrottleUp", CoreThrottleUp,
+	"ShutEnginesDown", ShutEnginesDown
 ).
 
 for _s in sequence {
