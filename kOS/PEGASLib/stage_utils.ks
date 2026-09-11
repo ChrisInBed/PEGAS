@@ -410,6 +410,59 @@ FUNCTION configure_booster_core_stages {
 	IF eventInfo:HASKEY("coreThrottleUpDelay") {
 		SET coreThrottleUpDelay TO eventInfo["coreThrottleUpDelay"].
 	}
+	LOCAL liveBoosterStaging IS FALSE.
+	// Keep this list of recognized names aligned with addons/booster_staging.ks.
+	// Unknown or incomplete configurations retain the legacy timed STAGE command.
+	LOCAL boosterStagingConfigurationValid IS FALSE.
+	LOCAL boosterStagingConfigError IS "".
+	IF (DEFINED BoosterStagingType) {
+		IF BoosterStagingType = "DefaultBoosterStaging" {
+			SET boosterStagingConfigurationValid TO TRUE.
+		} ELSE IF BoosterStagingType = "ConsecutiveBoosterStaging" {
+			IF NOT (DEFINED BoosterStagingArgs) {
+				SET boosterStagingConfigError TO "BoosterStagingArgs is undefined".
+			} ELSE IF NOT BoosterStagingArgs:ISTYPE("Lexicon") {
+				SET boosterStagingConfigError TO "BoosterStagingArgs must be a lexicon".
+			} ELSE IF NOT BoosterStagingArgs:HASKEY("stagingNumber") OR NOT BoosterStagingArgs:HASKEY("timeInterval") {
+				SET boosterStagingConfigError TO "BoosterStagingArgs requires stagingNumber and timeInterval".
+			} ELSE IF NOT BoosterStagingArgs["stagingNumber"]:ISTYPE("Scalar") OR NOT BoosterStagingArgs["timeInterval"]:ISTYPE("Scalar") {
+				SET boosterStagingConfigError TO "stagingNumber and timeInterval must be scalars".
+			} ELSE IF BoosterStagingArgs["stagingNumber"] < 1
+				OR BoosterStagingArgs["stagingNumber"] <> ROUND(BoosterStagingArgs["stagingNumber"], 0)
+				OR BoosterStagingArgs["timeInterval"] < 0 {
+				SET boosterStagingConfigError TO "stagingNumber must be a positive integer and timeInterval must be non-negative".
+			} ELSE {
+				SET boosterStagingConfigurationValid TO TRUE.
+			}
+		} ELSE {
+			SET boosterStagingConfigError TO "unknown BoosterStagingType '" + BoosterStagingType + "'".
+		}
+	}
+	IF boosterStagingConfigurationValid {
+		LOCAL candidateEngines IS LIST().
+		LIST ENGINES IN candidateEngines.
+		FOR engine IN candidateEngines {
+			IF engine:TAG:CONTAINS(BoosterEngineLabel) {
+				SET liveBoosterStaging TO TRUE.
+				BREAK.
+			}
+		}
+		IF NOT liveBoosterStaging {
+			SET boosterStagingConfigError TO "no engine tag contains '" + BoosterEngineLabel + "'".
+		}
+	}
+	IF boosterStagingConfigError:LENGTH > 0 {
+		PRINT "[stage-utils] WARNING: " + boosterStagingConfigError
+			+ "; falling back to the timed STAGE command.".
+	}
+	LOCAL boosterJettisonMessage IS "booster separation".
+	IF liveBoosterStaging {
+		SET boosterJettisonMessage TO "UPFG booster mass update (predicted)".
+		PRINT "[stage-utils] Live booster staging selected; the timed jettison"
+			+ " event updates only the UPFG mass model.".
+	} ELSE {
+		PRINT "[stage-utils] Using legacy timed booster staging.".
+	}
 
 	IF gstatus <> "no_core_throttling" {
 		_stage_utils_insert_timed_event(targetSequence, LEXICON(
@@ -423,7 +476,8 @@ FUNCTION configure_booster_core_stages {
 		"time", jettisonTime + boosterSeparationDelay,
 		"type", "jettison",
 		"massLost", stageConfig["jettisonMass"],
-		"message", "booster separation"
+		"staging", NOT liveBoosterStaging,
+		"message", boosterJettisonMessage
 	)).
 	IF gstatus <> "no_core_throttling" {
 		_stage_utils_insert_timed_event(targetSequence, LEXICON(

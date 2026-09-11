@@ -5,8 +5,8 @@ logical stages expected by PEGAS. The first stage represents the initial
 full-thrust burn, the second represents the core-throttled booster burn, and the
 third represents the core after booster separation. PEGAS creates the
 constant-acceleration virtual stages associated with `gLim`; the helper still
-has to predict booster burnout explicitly so that the separation time and the
-core mass at separation are correct.
+has to predict booster burnout explicitly so that UPFG's separation timeline
+and predicted core mass remain internally consistent.
 
 ## Inputs and result
 
@@ -25,8 +25,7 @@ core mass at separation are correct.
 publishes the values as the globals `BoosterEngineLabel` and `CoreEngineLabel` so
 runtime delegates and other add-ons can identify the two engine groups. The
 generated core throttle delegates currently consume `CoreEngineLabel`;
-`BoosterEngineLabel` is available to other extensions but is not otherwise used
-by this helper.
+the live booster-staging add-on consumes `BoosterEngineLabel`.
 
 `make_throttle_stage_config` takes `payloadMass` as its fourth argument. The
 payload must not already be included in `coreInfo["massWet"]` or
@@ -39,7 +38,9 @@ core's physical throttle after throttling down, and the acceleration limits
 `glim1` and `glim2` in multiples of standard gravity. The optional
 `boosterSeparationDelay` and `coreThrottleUpDelay` fields are offsets from
 predicted booster burnout. They default to zero and the separation delay,
-respectively.
+respectively. With live booster staging, `boosterSeparationDelay` calibrates
+only the time at which UPFG applies the predicted booster mass loss; it does not
+delay the physical staging command.
 
 The returned lexicon has `fullStage`, `throttleDownStage`, and
 `throttleUpStage`; `status`; `jettisonMass`; `throttleDownTime`; and
@@ -110,6 +111,86 @@ user's existing `sequence`. The input sequence must already be ordered by
 `time`. Insertion preserves ascending time order and places generated events
 after existing events with the same timestamp. Throttle-down and throttle-up
 events are omitted when the profile status is `no_core_throttling`.
+
+## Live booster staging
+
+Launch files may select the single-command strategy by declaring:
+
+```ks
+DECLARE GLOBAL BoosterStagingType IS "DefaultBoosterStaging".
+```
+
+Vehicles that require several consecutive KSP staging commands use:
+
+```ks
+DECLARE GLOBAL BoosterStagingType IS "ConsecutiveBoosterStaging".
+DECLARE GLOBAL BoosterStagingArgs IS LEXICON(
+    "stagingNumber", 2,
+    "timeInterval", 0.3
+).
+```
+
+`stagingNumber` is the positive integer number of `STAGE.` commands to issue.
+`timeInterval` is the minimum non-negative interval in seconds between those
+commands. `STAGE:READY` must also be true before every command. The first
+command is eligible immediately after burnout is detected; the interval applies
+between it and each subsequent command.
+
+For either valid recognized mode, when at least one engine tag contains
+`BoosterEngineLabel`, the generated booster `jettison` event has
+`staging = FALSE`. It remains at
+`jettisonTime + boosterSeparationDelay` and still supplies `massLost`, so PEGAS
+creates the predicted virtual stage required by UPFG, but the event handler does
+not issue `STAGE.`. If `BoosterStagingType` is absent or invalid, required
+consecutive-mode arguments are absent or invalid, or no matching booster engine
+exists, the generated event has `staging = TRUE` and retains legacy timed
+physical separation. Configuration errors produce a high-priority PEGAS UI
+warning.
+
+`addons/booster_staging.ks` is loaded inside the PEGAS program context. It
+selects the configured callback, caches every engine whose tag contains
+`BoosterEngineLabel`, and creates a recurring trigger directly at add-on scope:
+
+```ks
+WHEN TRUE THEN {
+    RETURN NOT _StagingCallback().
+}
+```
+
+A booster-staging callback is a bounded, no-explicit-wait state-machine step.
+It returns `FALSE` while monitoring or while more separation actions remain,
+and returns `TRUE` only after its complete sequence has finished. A kOS trigger
+is preserved when its body returns `TRUE`, hence the wrapper negates the
+callback result. This permits a future callback to perform one staging action,
+return `FALSE`, and perform another action on a later invocation. `STAGE.` still
+has its built-in one-physics-tick yield.
+
+Burnout is detected when a selected engine reports both `IGNITION` and
+`FLAMEOUT`, avoiding the normal unignited engine state. Both supplied callbacks
+shut down all selected booster engines when burnout is first detected.
+`DefaultBoosterStagingCallback` then issues one command as soon as
+`STAGE:READY` is true and returns `TRUE`.
+
+`ConsecutiveBoosterStagingCallback` issues the requested number of commands,
+never more than one per invocation. It returns `FALSE` between commands and
+uses both `timeInterval` and `STAGE:READY` to decide when the next command is
+eligible. After issuing command `stagingNumber`, it returns `TRUE` and the
+wrapper trigger expires. The completed sequence and its actual time after
+liftoff are sent to PEGAS's UI. Physical staging does not use
+`boosterSeparationDelay` in either mode.
+
+Engine selection intentionally uses `TAG:CONTAINS`, allowing tags to carry
+multiple labels. An empty or overly broad booster label can match unrelated
+engines. The add-on avoids direct terminal printing because PEGAS redraws its
+own terminal UI. It pushes only completed-separation messages and configuration
+fallback warnings through `pushUIMessage`.
+
+The live trigger and UPFG's mass model deliberately remain independent. If the
+actual separation differs from the predicted mass-event time, UPFG uses the
+wrong booster mass over that interval. The implementation does not dynamically
+resynchronize UPFG because doing so would require invasive changes to its stage
+and convergence logic. `coreThrottleUpDelay` likewise remains relative to the
+predicted burnout time, not the detected physical separation.
 
 ## Full-thrust and throttled-core flight
 
@@ -390,6 +471,8 @@ Consequently the payload-free stage definitions still satisfy
 
 PEGAS later restores \(P\) to every one of these wet and dry masses.
 
-All three logical stages use `jettison = FALSE` and `ignition = FALSE`; the
-physical separation and core throttle-limit changes remain scheduled events in
-the caller's launch sequence.
+All three logical stages use `jettison = FALSE` and `ignition = FALSE`. Core
+throttle-limit changes remain scheduled events in the caller's launch sequence.
+Booster mass loss also remains a scheduled event, while physical booster
+separation is either performed by that event in legacy mode or by the live
+staging callback.

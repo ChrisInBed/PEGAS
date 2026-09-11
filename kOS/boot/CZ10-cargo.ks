@@ -32,6 +32,10 @@ LOCAL EventInfo to lexicon(
 	"boosterSeparationDelay", 1,
 	"coreThrottleUpDelay", 1.5
 ).
+DECLARE GLOBAL BoosterStagingType IS "DefaultBoosterStaging".
+// To issue several separation commands instead, replace the line above with:
+// DECLARE GLOBAL BoosterStagingType IS "ConsecutiveBoosterStaging".
+// DECLARE GLOBAL BoosterStagingArgs IS LEXICON("stagingNumber", 2, "timeInterval", 0.3).
 // Upper stage parameters, the CBC core stage will be automatically merged in afterwards
 GLOBAL vehicle IS LIST(
 	LEXICON(

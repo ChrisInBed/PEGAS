@@ -192,6 +192,7 @@ type     | `string`   | Type of the event. See below for the complete list.
 message  | `string`   | Optional\*. Message that will be printed in the terminal when the event is executed.
 throttle | `scalar`   | **Used only if** `type` **is** `"throttle"`. Desired throttle setting, value in range \[0-1\].
 massLost | kg   | **Used only if** `type` **is** `"jettison"`. Informs the system of mass amount lost in the process.
+staging  | `boolean`  | **Optional, used only if** `type` **is** `"jettison"`. Whether the event executes a physical `STAGE.` command. Defaults to `TRUE`.
 angle    | degrees    | **Used only if** `type` **is** `"roll"`. New roll angle.
 engineTag| `string`   | **Used only if** `type` **is** `"shutdown"`. Engines with this tag will be shut down. **DO NOT** assign this tag to any non-engine part!
 function | [`KOSDelegate`](http://ksp-kos.github.io/KOS_DOC/structures/misc/kosdelegate.html#structure:KOSDELEGATE) | **Used only if** `type` **is** `"delegate"`. Function to be called. Shall expect no arguments.
@@ -211,7 +212,7 @@ Type     | Short\* | Explanation
 ---      | ---     | ---
 print    | p       | Prints `message` in the GUI, nothing else.
 stage    | s       | Hits spacebar (a single `STAGE.` command in kOS).
-jettison | j       | Like `stage` but accounts for the mass lost during the event (subtracting the value under `massLost` key).
+jettison | j       | Accounts for the mass lost during the event and, by default, hits spacebar. Set `staging = FALSE` to update only the UPFG mass model without executing `STAGE.`.
 throttle | t       | Sets the throttle to given value (`throttle` key) - only works during the passive guidance phase.
 shutdown | u       | Shuts down all engines with a specific name tag. This requires not only tagging a part in the editor, but also the engine in `vehicle` config (see above)!
 roll     | r       | Changes the roll component of vehicle attitude (pitch and yaw are dynamically calculated).
@@ -235,6 +236,13 @@ so when either of those two events are encountered, PEGAS will create so-called 
 For a basic explanation how that mechanism works, [read this](magic.md).
 For an in-depth look, analyze the function `initializeVehicleForUPFG` in [`pegas_util.ks`](../kOS/pegas_util.ks).
 (Additionally, constant-acceleration stages, i.e. ones with `gLim` key defined, will also be handled by insertion of a virtual stage.)
+
+The `staging` key changes only the physical command dispatched when a timed
+`jettison` event is reached. It does not disable `massLost`, virtual-stage
+creation, event messages, or normal event processing. This makes it possible
+for an independent detector to perform physical separation while the timed
+event remains as UPFG's predicted mass transition. PEGAS does not automatically
+resynchronize that transition if physical separation occurs earlier or later.
 
 In any case, be aware of one fact: every time you use `gLim` or `jettison` or `shutdown`,
 you add (at least) 1 virtual stage to your vehicle and further complicate the event sequence.

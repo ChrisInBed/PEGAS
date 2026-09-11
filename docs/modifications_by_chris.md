@@ -5,6 +5,7 @@
 1. 在boot file中根据助推、芯级和事件参数自动生成并合并芯级节流火箭的`vehicle`分级和`sequence`事件
 2. 取消等待到目标平面，程序启动后倒计时15秒立刻发射
 3. 上升中对齐推力方向而不是船头方向
+4. 可根据助推发动机的实际熄火状态执行助推分离，同时保留UPFG所需的预测质量事件
 
 由于没有和原作者讨论过，目前暂时不打算进行更大规模的修改，使用上有些不便请见谅。
 
@@ -39,7 +40,7 @@
 - T-3.5s 助推和芯级引擎点火
 - T+0s 发射台固定装置释放，火箭起飞
 - T+60s 芯级节流到64%
-- 助推燃料耗尽+1s 助推分离
+- 任一助推发动机熄火时执行助推分离
 - 助推燃料耗尽+1.5s 芯级全推力
 
 1. 在VAB中打开你的火箭载具文件，为芯一级需要节流的引擎设置一个共同的tag标记，例如`core`。程序采用`e:tag:contains(CoreEngineLabel)`进行子字符串匹配，因此tag还可以同时包含供其他功能使用的标记，只要其中包含`CoreInfo["engineLabel"]`的值即可。`engineLabel`不得为空字符串，否则空字符串会匹配所有发动机；也应避免选择会意外出现在无关发动机tag中的过短标记。
@@ -51,7 +52,7 @@
    - `thrust`：该组所有发动机的总最大推力，单位N。
    - `isp`：该组发动机的等效比冲，单位s。
    - `throttleMinLevel`：该组发动机的物理最低节流，范围0到1。如果一组内有多种发动机，使用“所有发动机最低推力之和 / 所有发动机最大推力之和”。
-   - `engineLabel`：用于识别该组发动机的tag子字符串。`BoosterInfo`和`CoreInfo`都必须填写；程序会分别将它们发布为全局变量`BoosterEngineLabel`和`CoreEngineLabel`。当前自动生成的节流事件使用`CoreEngineLabel`查找芯级发动机，`BoosterEngineLabel`则保留给其他扩展使用。
+   - `engineLabel`：用于识别该组发动机的tag子字符串。`BoosterInfo`和`CoreInfo`都必须填写；程序会分别将它们发布为全局变量`BoosterEngineLabel`和`CoreEngineLabel`。自动生成的节流事件使用`CoreEngineLabel`查找芯级发动机，默认实时助推分离策略使用`BoosterEngineLabel`查找助推发动机。
 
    `BoosterInfo`只包含**所有捆绑助推器的合计值**，不包含芯级。`CoreInfo`表示助推段开始时由芯级承载的整个剩余箭体，但不包含`mission["payload"]`：`massWet`应包含湿芯级、上面级和整流罩，`massDry`则包含干芯级以及仍被承载的上面级和整流罩。两者之差是可由芯级发动机消耗的推进剂质量。载荷质量只在`mission["payload"]`中填写；没有载荷时填写0。
 4. 填写`EventInfo`：
@@ -60,15 +61,45 @@
    - `throttleDownLevel`：芯级节流后的推力比例，范围0到1，并且不得低于芯级的`throttleMinLevel`。
    - `glim1`：芯级节流后、助推分离前的过载限制。
    - `glim2`：助推分离、芯级恢复全推力后的过载限制。
-   - `boosterSeparationDelay`：计算出的助推燃尽时刻到执行助推分离事件之间的延迟，单位s；省略时默认为0。
+   - `boosterSeparationDelay`：计算出的助推燃尽时刻到预测`jettison`事件之间的延迟，单位s；省略时默认为0。启用实时助推分离后，该参数只用于校准UPFG质量模型，不会延迟实际分离。
    - `coreThrottleUpDelay`：计算出的助推燃尽时刻到芯级恢复全推力之间的延迟，单位s；省略时默认与`boosterSeparationDelay`相同。
 
    程序会按照KSP主节流同时控制全部发动机的规律，计算两个恒过载阶段，并预测助推燃尽时间和芯级分离时间。若发动机在最低推力下仍无法维持限制，计算会继续到对应推进剂耗尽，而终端日志会说明发生了最低节流限制。完整方程见[数学推导与实现细节](../kOS/PEGASLib/architecture.md)。
+
+   如需根据发动机实际状态分离助推器，在参数区声明：
+
+   ```ks
+   DECLARE GLOBAL BoosterStagingType IS "DefaultBoosterStaging".
+   ```
+
+   如果载具需要连续触发多个KSP分级事件（例如四个助推器分两批抛离），改用：
+
+   ```ks
+   DECLARE GLOBAL BoosterStagingType IS "ConsecutiveBoosterStaging".
+   DECLARE GLOBAL BoosterStagingArgs IS LEXICON(
+       "stagingNumber", 2,
+       "timeInterval", 0.3
+   ).
+   ```
+
+   `stagingNumber`是需要执行的`STAGE.`命令总数，必须是正整数；`timeInterval`是相邻两次命令之间的最短秒数，必须大于或等于0。检测到燃尽后第一次命令可立即执行，之后每次命令还必须同时满足时间间隔和`STAGE:READY`条件。
+
+   两种策略均由`addons/booster_staging.ks`提供。它会缓存tag中包含`BoosterEngineLabel`的发动机；当任一匹配发动机同时满足`IGNITION`和`FLAMEOUT`时判定助推燃尽，先关闭全部匹配发动机，再按所选策略执行分级。默认策略执行一次，连续策略按参数执行多次。这里故意使用`TAG:CONTAINS`，因此一台发动机可以同时携带多个功能标签，但空字符串或过于宽泛的标签可能误选无关发动机。未定义`BoosterStagingType`、填写未知值、连续策略参数缺失或无效、或者没有找到匹配发动机时，程序会回退到预测时刻执行分级，并在配置有误时通过PEGAS界面显示高优先级警告。
+
+   插件内部使用持续触发器调用布尔回调。回调返回`FALSE`表示仍需继续运行，返回`TRUE`表示整个助推分离流程已经结束。自定义策略应把复杂流程写成每次调用只前进一步的状态机，不得使用显式`WAIT`或阻塞循环；这样也能支持四个助推器分两次执行分级。触发器包装为：
+
+   ```ks
+   WHEN TRUE THEN {
+       RETURN NOT _StagingCallback().
+   }
+   ```
+
+   启用实时策略时，`sequence`中的预测`jettison`事件会设置`staging = FALSE`：它不会再次执行物理分级，但仍会按`massLost`为UPFG创建虚拟分级。实际分离与预测事件之间存在时间差时，UPFG会在这段时间内使用有偏差的质量模型；当前实现有意不动态重同步UPFG。芯级恢复全推力的时刻也仍按预测燃尽时间计算。
 5. 设定`vehicle`。这里只写助推/芯级之后的上面级，保持正常飞行顺序；不要手工加入`fullStage`、`throttleDownStage`或`throttleUpStage`。辅助函数会生成这三个阶段，并根据`controls["upfgActivation"]`自动决定是否把它们放到`vehicle`开头：预测结束时刻早于或等于UPFG启用时刻的阶段不会被UPFG看到，其余阶段按顺序插入。比如芯级在T+60s节流、UPFG在T+125s启用时，`fullStage`会被省略，而仍在进行的`throttleDownStage`会成为UPFG看到的第一个阶段。
 6. 设定`sequence`。这里只写其他任务事件，并确保原列表已经按时间升序排列；不要手工添加芯级节流、助推分离或芯级恢复全推力事件。辅助函数会在不打乱已有事件的前提下插入：
 
    - `CoreThrottleDown`，时间为`throttleDownTime`；
-   - 助推分离事件，时间为`jettisonTime + boosterSeparationDelay`；
+   - 助推`jettison`事件，时间为`jettisonTime + boosterSeparationDelay`；启用实时策略时它只更新UPFG质量模型；
    - `CoreThrottleUp`，时间为`jettisonTime + coreThrottleUpDelay`。
 
    `CoreThrottleDown`和`CoreThrottleUp`会自动查找tag中包含`CoreInfo["engineLabel"]`的发动机并修改其推力上限。`make_throttle_stage_config`还会根据`throttleDownLevel`和芯级`throttleMinLevel`自动计算并发布`CoreThrottleTarget`，不需要在启动文件中另行定义。若助推在`throttleDownTime`之前或恰好燃尽，状态为`no_core_throttling`，程序不会插入两个芯级节流事件，但仍会插入助推分离事件。

@@ -155,7 +155,12 @@ FUNCTION eventHandler {
 		STAGE.
 	}
 	ELSE IF eType = "jettison" OR eType = "j" {
-		STAGE.
+		// A jettison can be a mass-model-only event. This lets an external
+		// trigger perform the physical separation while the timed event still
+		// creates the virtual stage required by UPFG.
+		IF NOT event:HASKEY("staging") OR event["staging"] {
+			STAGE.
+		}
 	}
 	ELSE IF eType = "throttle" OR eType = "t" {
 		userEvent_throttle(event).
