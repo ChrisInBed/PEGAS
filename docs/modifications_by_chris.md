@@ -42,7 +42,7 @@
 - 助推燃料耗尽+1s 助推分离
 - 助推燃料耗尽+1.5s 芯级全推力
 
-1. 在VAB中打开你的火箭载具文件，将芯一级需要节流的引擎的tag改为`core`，这样程序就能自动检测到哪些引擎需要节流
+1. 在VAB中打开你的火箭载具文件，为芯一级需要节流的引擎设置一个共同的tag标记，例如`core`。程序采用`e:tag:contains(CoreEngineLabel)`进行子字符串匹配，因此tag还可以同时包含供其他功能使用的标记，只要其中包含`CoreInfo["engineLabel"]`的值即可。`engineLabel`不得为空字符串，否则空字符串会匹配所有发动机；也应避免选择会意外出现在无关发动机tag中的过短标记。
 2. 在`Ships/Script/boot/`中创建新的发射配置文件。建议复制示例`CZ10-cargo.ks`，然后只修改其中的`Parameter Settings`区域。不要删除文件开头对`PEGASLib/stage_utils.ks`的加载，也不要删除参数区之后对`configure_booster_core_stages`的调用。
 3. 在`Parameter Settings`中填写`BoosterInfo`和`CoreInfo`。两个lexicon使用相同的字段：
 
@@ -51,6 +51,7 @@
    - `thrust`：该组所有发动机的总最大推力，单位N。
    - `isp`：该组发动机的等效比冲，单位s。
    - `throttleMinLevel`：该组发动机的物理最低节流，范围0到1。如果一组内有多种发动机，使用“所有发动机最低推力之和 / 所有发动机最大推力之和”。
+   - `engineLabel`：用于识别该组发动机的tag子字符串。`BoosterInfo`和`CoreInfo`都必须填写；程序会分别将它们发布为全局变量`BoosterEngineLabel`和`CoreEngineLabel`。当前自动生成的节流事件使用`CoreEngineLabel`查找芯级发动机，`BoosterEngineLabel`则保留给其他扩展使用。
 
    `BoosterInfo`只包含**所有捆绑助推器的合计值**，不包含芯级。`CoreInfo`表示助推段开始时由芯级承载的整个剩余箭体，但不包含`mission["payload"]`：`massWet`应包含湿芯级、上面级和整流罩，`massDry`则包含干芯级以及仍被承载的上面级和整流罩。两者之差是可由芯级发动机消耗的推进剂质量。载荷质量只在`mission["payload"]`中填写；没有载荷时填写0。
 4. 填写`EventInfo`：
@@ -70,7 +71,7 @@
    - 助推分离事件，时间为`jettisonTime + boosterSeparationDelay`；
    - `CoreThrottleUp`，时间为`jettisonTime + coreThrottleUpDelay`。
 
-   `CoreThrottleDown`和`CoreThrottleUp`会自动查找带有`core`标记的发动机并修改其推力上限。若助推在`throttleDownTime`之前或恰好燃尽，状态为`no_core_throttling`，程序不会插入两个芯级节流事件，但仍会插入助推分离事件。
+   `CoreThrottleDown`和`CoreThrottleUp`会自动查找tag中包含`CoreInfo["engineLabel"]`的发动机并修改其推力上限。`make_throttle_stage_config`还会根据`throttleDownLevel`和芯级`throttleMinLevel`自动计算并发布`CoreThrottleTarget`，不需要在启动文件中另行定义。若助推在`throttleDownTime`之前或恰好燃尽，状态为`no_core_throttling`，程序不会插入两个芯级节流事件，但仍会插入助推分离事件。
 7. 参数区之后调用：
 
    ```ks

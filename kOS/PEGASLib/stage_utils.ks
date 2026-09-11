@@ -16,17 +16,20 @@ FUNCTION make_throttle_stage_config {
 	LOCAL boosterThrust IS boosterInfo["thrust"].
 	LOCAL boosterIsp IS boosterInfo["isp"].
 	LOCAL boosterMinThrottle IS boosterInfo["throttleMinLevel"].
+	DECLARE GLOBAL BoosterEngineLabel TO boosterInfo["engineLabel"].
 
 	LOCAL coreWetMass IS coreInfo["massWet"] + payloadMass.
 	LOCAL coreDryMass IS coreInfo["massDry"] + payloadMass.
 	LOCAL coreThrust IS coreInfo["thrust"].
 	LOCAL coreIsp IS coreInfo["isp"].
 	LOCAL coreMinThrottle IS coreInfo["throttleMinLevel"].
+	DECLARE GLOBAL CoreEngineLabel TO coreInfo["engineLabel"].
 
 	LOCAL throttleDownTime IS eventInfo["throttleDownTime"].
 	LOCAL throttleDownLevel IS eventInfo["throttleDownLevel"].
 	LOCAL glim1 IS eventInfo["glim1"].
 	LOCAL glim2 IS eventInfo["glim2"].
+	DECLARE GLOBAL CoreThrottleTarget TO 100 * (throttleDownLevel - coreMinThrottle) / (1 - coreMinThrottle).
 
 	LOCAL boosterExhaustVelocity IS boosterIsp * CONSTANT:g0.
 	LOCAL coreExhaustVelocity IS coreIsp * CONSTANT:g0.

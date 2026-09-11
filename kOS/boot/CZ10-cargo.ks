@@ -13,14 +13,16 @@ LOCAL BoosterInfo to lexicon(
 	"massDry", 99231,
 	"thrust", 19977100,
 	"isp", 338.20,
-	"throttleMinLevel", 0.637
+	"throttleMinLevel", 0.637,
+	"engineLabel", "booster"
 ).
 LOCAL CoreInfo to lexicon(
 	"massWet", 873490 + fairingMass + towerMass,
 	"massDry", 308048 + fairingMass + towerMass,
 	"thrust", 9988550,
 	"isp", 338.20,
-	"throttleMinLevel", 0.637
+	"throttleMinLevel", 0.637,
+	"engineLabel", "core"
 ).
 LOCAL EventInfo to lexicon(
 	"throttleDownTime", 60,
@@ -83,8 +85,6 @@ GLOBAL mission IS LEXICON(
 	"payload", 18146  // Change to your payload mass in kg
 ).
 // End Parameter Settings
-
-GLOBAL CoreThrottleTarget to 100 * (EventInfo:throttleDownLevel - CoreInfo:throttleMinLevel) / (1 - CoreInfo:throttleMinLevel).
 SET usc_convergeFlags TO LIST().
 
 LOCAL _initialStateConfig IS configure_booster_core_stages(

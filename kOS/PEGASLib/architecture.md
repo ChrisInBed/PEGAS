@@ -19,6 +19,14 @@ core mass at separation are correct.
 | `thrust` | N | Maximum vacuum thrust |
 | `isp` | s | Vacuum specific impulse |
 | `throttleMinLevel` | 0-1 | Physical engine throttle at KSP main throttle zero |
+| `engineLabel` | string | Substring used to identify engines belonging to this group by their KSP part tag |
+
+`engineLabel` does not participate in the mass or burnout calculation. The helper
+publishes the values as the globals `BoosterEngineLabel` and `CoreEngineLabel` so
+runtime delegates and other add-ons can identify the two engine groups. The
+generated core throttle delegates currently consume `CoreEngineLabel`;
+`BoosterEngineLabel` is available to other extensions but is not otherwise used
+by this helper.
 
 `make_throttle_stage_config` takes `payloadMass` as its fourth argument. The
 payload must not already be included in `coreInfo["massWet"]` or
@@ -72,6 +80,22 @@ It passes `mission["payload"]` to `make_throttle_stage_config`, mutates the two
 supplied lists, and returns the calculated stage-config lexicon. Launch files
 using this helper must define the payload key; set it to zero for a flight with
 no payload.
+
+While building the profile, `make_throttle_stage_config` also publishes
+`BoosterEngineLabel`, `CoreEngineLabel`, and `CoreThrottleTarget` as globals for
+the event delegates loaded later by PEGAS. The core thrust-limit setting is
+
+\[
+\texttt{CoreThrottleTarget}
+=100\frac{d-l_C}{1-l_C}.
+\]
+
+The delegates select engines with
+`e:tag:contains(CoreEngineLabel)`, intentionally using substring matching rather
+than equality. This permits one engine tag to carry several functional labels.
+Consequently labels must be nonempty and should be chosen so that unrelated
+engine tags do not contain them. In kOS, an empty substring matches every string
+and would cause the delegates to change the thrust limit of every engine.
 
 Generated stages are prepended to `vehicle` in flight order only when their
 predicted end time is strictly later than `controls["upfgActivation"]`. A stage

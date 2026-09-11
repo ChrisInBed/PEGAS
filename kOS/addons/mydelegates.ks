@@ -2,14 +2,14 @@ declare global CoreThrottleDown to {
 	local myengs to list().
 	list engines in myengs.
 	for e in myengs {
-		if e:tag:contains("core") { set e:thrustlimit to CoreThrottleTarget. }
+		if e:tag:contains(CoreEngineLabel) { set e:thrustlimit to CoreThrottleTarget. }
 	}
 }.
 declare global CoreThrottleUp to {
 	local myengs to list().
 	list engines in myengs.
 	for e in myengs {
-		if e:tag:contains("core") { set e:thrustlimit to 100. }
+		if e:tag:contains(CoreEngineLabel) { set e:thrustlimit to 100. }
 	}
 }.
 
