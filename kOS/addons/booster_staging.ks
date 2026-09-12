@@ -40,25 +40,25 @@ FUNCTION DefaultBoosterStagingCallback {
 	RETURN FALSE.
 }
 
-// Consecutive booster staging strategy: wait for burnout, then stage up to N times with a time interval.
+// Consecutive booster staging strategy: wait sepDelay after burnout, then
+// stage up to N times with timeInterval between commands.
 GLOBAL _consecutiveMaxStagingNumber IS 3.
 GLOBAL _consecutiveTimeInterval IS 0.3.
+GLOBAL _consecutiveSepDelay IS 0.3.
 GLOBAL _consecutiveStagingActive IS FALSE.
 GLOBAL _consecutiveStagingNumber IS 0.
-GLOBAL _consecutiveLastStagingTime IS TIME:SECONDS.
+GLOBAL _consecutiveNextStagingTime IS TIME:SECONDS.
 FUNCTION ConsecutiveBoosterStagingCallback {
 	IF ((NOT _consecutiveStagingActive) AND _hasBurnout()) {
 		_deactivateEngines().
 		SET _consecutiveStagingActive TO TRUE.
-		// Make the first command eligible immediately; timeInterval applies
-		// between consecutive staging commands.
-		SET _consecutiveLastStagingTime TO TIME:SECONDS - _consecutiveTimeInterval.
+		SET _consecutiveNextStagingTime TO TIME:SECONDS + _consecutiveSepDelay.
 	}
 	LOCAL currentTime IS TIME:SECONDS.
-	IF (_consecutiveStagingActive AND STAGE:READY AND (currentTime - _consecutiveLastStagingTime) >= _consecutiveTimeInterval) {
+	IF (_consecutiveStagingActive AND STAGE:READY AND currentTime >= _consecutiveNextStagingTime) {
 		STAGE.
 		SET _consecutiveStagingNumber TO _consecutiveStagingNumber + 1.
-		SET _consecutiveLastStagingTime TO currentTime.
+		SET _consecutiveNextStagingTime TO currentTime + _consecutiveTimeInterval.
 		IF _consecutiveStagingNumber >= _consecutiveMaxStagingNumber {
 			pushUIMessage("Booster separation complete ("
 				+ _consecutiveStagingNumber + " stages) at T+"
@@ -84,18 +84,24 @@ IF (DEFINED BoosterStagingType) {
 			SET _boosterStagingConfigError TO "BoosterStagingArgs is undefined".
 		} ELSE IF NOT BoosterStagingArgs:ISTYPE("Lexicon") {
 			SET _boosterStagingConfigError TO "BoosterStagingArgs must be a lexicon".
-		} ELSE IF NOT BoosterStagingArgs:HASKEY("stagingNumber") OR NOT BoosterStagingArgs:HASKEY("timeInterval") {
-			SET _boosterStagingConfigError TO "BoosterStagingArgs requires stagingNumber and timeInterval".
-		} ELSE IF NOT BoosterStagingArgs["stagingNumber"]:ISTYPE("Scalar") OR NOT BoosterStagingArgs["timeInterval"]:ISTYPE("Scalar") {
-			SET _boosterStagingConfigError TO "stagingNumber and timeInterval must be scalars".
+		} ELSE IF NOT BoosterStagingArgs:HASKEY("stagingNumber")
+			OR NOT BoosterStagingArgs:HASKEY("timeInterval")
+			OR NOT BoosterStagingArgs:HASKEY("sepDelay") {
+			SET _boosterStagingConfigError TO "BoosterStagingArgs requires stagingNumber, timeInterval, and sepDelay".
+		} ELSE IF NOT BoosterStagingArgs["stagingNumber"]:ISTYPE("Scalar")
+			OR NOT BoosterStagingArgs["timeInterval"]:ISTYPE("Scalar")
+			OR NOT BoosterStagingArgs["sepDelay"]:ISTYPE("Scalar") {
+			SET _boosterStagingConfigError TO "stagingNumber, timeInterval, and sepDelay must be scalars".
 		} ELSE IF BoosterStagingArgs["stagingNumber"] < 1
 			OR BoosterStagingArgs["stagingNumber"] <> ROUND(BoosterStagingArgs["stagingNumber"], 0)
-			OR BoosterStagingArgs["timeInterval"] < 0 {
-			SET _boosterStagingConfigError TO "stagingNumber must be a positive integer and timeInterval must be non-negative".
+			OR BoosterStagingArgs["timeInterval"] < 0
+			OR BoosterStagingArgs["sepDelay"] < 0 {
+			SET _boosterStagingConfigError TO "stagingNumber must be a positive integer; timeInterval and sepDelay must be non-negative".
 		} ELSE {
 			SET _StagingCallback TO ConsecutiveBoosterStagingCallback@.
 			SET _consecutiveMaxStagingNumber TO BoosterStagingArgs["stagingNumber"].
 			SET _consecutiveTimeInterval TO BoosterStagingArgs["timeInterval"].
+			SET _consecutiveSepDelay TO BoosterStagingArgs["sepDelay"].
 			SET _boosterStagingConfigured TO TRUE.
 		}
 	} ELSE {

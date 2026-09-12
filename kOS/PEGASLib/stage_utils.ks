@@ -423,14 +423,19 @@ FUNCTION configure_booster_core_stages {
 				SET boosterStagingConfigError TO "BoosterStagingArgs is undefined".
 			} ELSE IF NOT BoosterStagingArgs:ISTYPE("Lexicon") {
 				SET boosterStagingConfigError TO "BoosterStagingArgs must be a lexicon".
-			} ELSE IF NOT BoosterStagingArgs:HASKEY("stagingNumber") OR NOT BoosterStagingArgs:HASKEY("timeInterval") {
-				SET boosterStagingConfigError TO "BoosterStagingArgs requires stagingNumber and timeInterval".
-			} ELSE IF NOT BoosterStagingArgs["stagingNumber"]:ISTYPE("Scalar") OR NOT BoosterStagingArgs["timeInterval"]:ISTYPE("Scalar") {
-				SET boosterStagingConfigError TO "stagingNumber and timeInterval must be scalars".
+			} ELSE IF NOT BoosterStagingArgs:HASKEY("stagingNumber")
+				OR NOT BoosterStagingArgs:HASKEY("timeInterval")
+				OR NOT BoosterStagingArgs:HASKEY("sepDelay") {
+				SET boosterStagingConfigError TO "BoosterStagingArgs requires stagingNumber, timeInterval, and sepDelay".
+			} ELSE IF NOT BoosterStagingArgs["stagingNumber"]:ISTYPE("Scalar")
+				OR NOT BoosterStagingArgs["timeInterval"]:ISTYPE("Scalar")
+				OR NOT BoosterStagingArgs["sepDelay"]:ISTYPE("Scalar") {
+				SET boosterStagingConfigError TO "stagingNumber, timeInterval, and sepDelay must be scalars".
 			} ELSE IF BoosterStagingArgs["stagingNumber"] < 1
 				OR BoosterStagingArgs["stagingNumber"] <> ROUND(BoosterStagingArgs["stagingNumber"], 0)
-				OR BoosterStagingArgs["timeInterval"] < 0 {
-				SET boosterStagingConfigError TO "stagingNumber must be a positive integer and timeInterval must be non-negative".
+				OR BoosterStagingArgs["timeInterval"] < 0
+				OR BoosterStagingArgs["sepDelay"] < 0 {
+				SET boosterStagingConfigError TO "stagingNumber must be a positive integer; timeInterval and sepDelay must be non-negative".
 			} ELSE {
 				SET boosterStagingConfigurationValid TO TRUE.
 			}

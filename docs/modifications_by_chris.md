@@ -78,11 +78,14 @@
    DECLARE GLOBAL BoosterStagingType IS "ConsecutiveBoosterStaging".
    DECLARE GLOBAL BoosterStagingArgs IS LEXICON(
        "stagingNumber", 2,
-       "timeInterval", 0.3
+       "timeInterval", 0.3,
+       "sepDelay", 0.3
    ).
    ```
 
-   `stagingNumber`是需要执行的`STAGE.`命令总数，必须是正整数；`timeInterval`是相邻两次命令之间的最短秒数，必须大于或等于0。检测到燃尽后第一次命令可立即执行，之后每次命令还必须同时满足时间间隔和`STAGE:READY`条件。
+   `stagingNumber`是需要执行的`STAGE.`命令总数，必须是正整数；`sepDelay`是检测到助推燃尽后到第一次命令之间的延迟秒数；`timeInterval`是相邻两次命令之间的最短秒数。两个时间参数都必须大于或等于0，每次命令还必须满足`STAGE:READY`条件。如果到达设定时刻时KSP尚不允许分级，回调会在之后第一次满足`STAGE:READY`时执行。只需要一次物理分离但仍希望在实际燃尽后延迟时，可以使用`stagingNumber = 1`。
+
+   `sepDelay`控制实际物理分级，只用于`ConsecutiveBoosterStaging`；`boosterSeparationDelay`则只移动UPFG预测的`jettison`质量事件，二者互不替代。
 
    两种策略均由`addons/booster_staging.ks`提供。它会缓存tag中包含`BoosterEngineLabel`的发动机；当任一匹配发动机同时满足`IGNITION`和`FLAMEOUT`时判定助推燃尽，先关闭全部匹配发动机，再按所选策略执行分级。默认策略执行一次，连续策略按参数执行多次。这里故意使用`TAG:CONTAINS`，因此一台发动机可以同时携带多个功能标签，但空字符串或过于宽泛的标签可能误选无关发动机。未定义`BoosterStagingType`、填写未知值、连续策略参数缺失或无效、或者没有找到匹配发动机时，程序会回退到预测时刻执行分级，并在配置有误时通过PEGAS界面显示高优先级警告。
 

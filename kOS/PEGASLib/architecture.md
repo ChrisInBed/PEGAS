@@ -126,15 +126,23 @@ Vehicles that require several consecutive KSP staging commands use:
 DECLARE GLOBAL BoosterStagingType IS "ConsecutiveBoosterStaging".
 DECLARE GLOBAL BoosterStagingArgs IS LEXICON(
     "stagingNumber", 2,
-    "timeInterval", 0.3
+    "timeInterval", 0.3,
+    "sepDelay", 0.3
 ).
 ```
 
 `stagingNumber` is the positive integer number of `STAGE.` commands to issue.
 `timeInterval` is the minimum non-negative interval in seconds between those
-commands. `STAGE:READY` must also be true before every command. The first
-command is eligible immediately after burnout is detected; the interval applies
-between it and each subsequent command.
+commands. `sepDelay` is the non-negative delay in seconds from detected burnout
+to the first command. `STAGE:READY` must also be true before every command. If
+it is not ready when a deadline is reached, the callback stages on the first
+later invocation for which it is ready.
+
+`sepDelay` controls actual physical staging and applies only to
+`ConsecutiveBoosterStaging`. It is independent of `boosterSeparationDelay`,
+which shifts UPFG's predicted `jettison` mass event. Use `stagingNumber = 1`
+when one physical separation command is required but it must be delayed after
+live burnout detection.
 
 For either valid recognized mode, when at least one engine tag contains
 `BoosterEngineLabel`, the generated booster `jettison` event has
@@ -173,11 +181,11 @@ shut down all selected booster engines when burnout is first detected.
 
 `ConsecutiveBoosterStagingCallback` issues the requested number of commands,
 never more than one per invocation. It returns `FALSE` between commands and
-uses both `timeInterval` and `STAGE:READY` to decide when the next command is
-eligible. After issuing command `stagingNumber`, it returns `TRUE` and the
-wrapper trigger expires. The completed sequence and its actual time after
-liftoff are sent to PEGAS's UI. Physical staging does not use
-`boosterSeparationDelay` in either mode.
+waits `sepDelay` before the first command. It then uses both `timeInterval` and
+`STAGE:READY` to decide when each later command is eligible. After issuing
+command `stagingNumber`, it returns `TRUE` and the wrapper trigger expires. The
+completed sequence and its actual time after liftoff are sent to PEGAS's UI.
+Physical staging does not use `boosterSeparationDelay` in either mode.
 
 Engine selection intentionally uses `TAG:CONTAINS`, allowing tags to carry
 multiple labels. An empty or overly broad booster label can match unrelated
